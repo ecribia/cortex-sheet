@@ -47,6 +47,8 @@ function add_event_handlers(editable)
 	editable.addEventListener("blur",function (event)
 	{
 		event.target.innerHTML = text_to_html(event.target.innerText)
+		// ADDED: Rescan headers after content changes
+		setTimeout(() => scanExistingHeaders(), 50);
 	})
 	editable.addEventListener("focus",function (event)
 	{
@@ -221,52 +223,30 @@ function get_children(elem, i, version)
 function get_element_from_path(i, version)
 {
 	var parts = i.split("/")
-//			console.log(parts)
-//				var current = document.querySelector("div#" + parts[0]).children[parts[1]]
-//				for (var p=2; p<parts.length; p++)
-//			console.log("div#" + parts[0])
 	var current = document.querySelector("div#" + parts[0])
-//			console.log("Starting with ");
-//			console.log(current)
 	for (var p=1; p<parts.length; p++)
 	{
-//		console.log(current)
-//		console.log("-> " + parts[p])
 		try
 		{
 			current = current.querySelector("#" + parts[p])
 		}
 		catch
 		{
-//					console.log(current.children)
-//					console.log(current.children[0])
-			
-			// Hack to remain backwards compatible
 			current = get_children(current, parts[p], version);
-			
-//					if (index == current.children.length) break;
-//					console.log("Getting " + index)
-//					console.log(current);
-//					current = current.children[parts[p]]
-//					console.log(parts[p] + ": " + current)
 		}
-//		console.log(current)
 		if (current.getAttribute("data-onload") !== null)
 		{
-//			console.log("Creating new element")
 			window[current.getAttribute("data-onload")]({target: current})
 			p = p - 1;
 			current = current.parentElement;
 		}
 	}
-//            console.log(current)
 	return current
 }
 
 function load_character(file)
 {
 	var version = file.version
-	//console.log(version)
 	
 	var data = file
 	if (version >= 2)
@@ -288,7 +268,6 @@ function load_character(file)
 		}
 		
 		if (element == null) continue;
-//		console.log(element);
 		
 		if (element.getAttribute("type") == "checkbox")
 		{
@@ -311,8 +290,6 @@ function load_character(file)
 			if (data[i].style != null)
 			{
 				element.setAttribute("data-style", data[i].style);
-				console.log(data[i].style)
-				console.log(element)
 				element.classList.add(data[i].style);
 			}
 			if (data[i].x != null)
@@ -340,6 +317,9 @@ function load_character(file)
 			elem.classList.add(style);
 		}		
 	}
+	
+	// ADDED: Rescan headers after loading
+	setTimeout(() => scanExistingHeaders(), 200);
 }
 
 function on_drag_enter(e)
@@ -378,6 +358,8 @@ function add_group(e, class_name)
 	new_group.classList.remove("template")
 	e.target.parentElement.insertBefore(new_group, e.target)
 	init_event_handlers(new_group)
+	// ADDED: Rescan after adding new group
+	setTimeout(() => scanExistingHeaders(), 50);
 }
 
 function add_trait_group(e)
@@ -392,7 +374,6 @@ function add_trait(e)
 function update_attribute_positions()
 {
 	var attributes = document.querySelectorAll(".attribute:not(.template)")
-
 
 	document.getElementById("attribute-curve").style.display = (attributes.length <= 1) ? "none" : "block";
 	
@@ -460,9 +441,6 @@ function reset_trait_group(elem)
 function set_trait_group_name(e)
 {
 	if (e.target.parentElement.getAttribute("data-style") != null) return;
-	
-//	console.log("SET TRAIT GROUP NAME")
-//	e.target.parentElement.id = e.target.innerText.toLowerCase();
 
     reset_trait_group(e.target.parentElement);
 
@@ -682,13 +660,18 @@ window.onload = function()
 
 	init_event_handlers(document)
 }
-// Dice pool and panel
+
+// ============================================================================
+// DICE POOL SYSTEM - FIXED VERSION
+// ============================================================================
+
 let dicePool = [];
 let dicePoolPanel = null;
 
-// Convert <c> to dice
+// Convert <c> value to die notation
 function getDieFromCValue(cValue) {
-    switch(parseInt(cValue)) {
+    const val = parseInt(cValue);
+    switch(val) {
         case 4: return "d4";
         case 6: return "d6";
         case 8: return "d8";
@@ -698,298 +681,391 @@ function getDieFromCValue(cValue) {
     }
 }
 
-// Get die for a header at click time
+// IMPROVED: Get die value from header at the moment of clicking
 function getDieFromHeader(header) {
-    // Look for the <c> tag in the same trait-group
-    const traitGroup = header.closest('.trait-group');
-    if (!traitGroup) return null;
+    // Look for <c> tag INSIDE this specific header (not in parent trait-group)
+    let cTag = header.querySelector('c');
     
-    // Try different possible locations for the die value
-    let cTag = traitGroup.querySelector('h2:nth-child(2) c');
-    if (!cTag) cTag = traitGroup.querySelector('c');
-    if (!cTag) cTag = traitGroup.querySelector('.dice-value');
+    if (!cTag) {
+        console.log("No <c> tag found inside this header");
+        return null;
+    }
     
-    if (!cTag) return null;
-    
-    return getDieFromCValue(cTag.innerText);
+    const cValue = cTag.innerText || cTag.textContent;
+    const dieValue = getDieFromCValue(cValue);
+    console.log("Found die value:", dieValue, "from <c> tag:", cValue);
+    return dieValue;
 }
 
-// Attach dice icon to a single header - IMPROVED to prevent duplicates
+// Store reference to header element, not its text (so we can always re-read it)
 function attachDiceIcon(header) {
-    // Remove ALL existing dice icons first
-    const existingIcons = header.querySelectorAll(".dice-icon");
-    existingIcons.forEach(icon => icon.remove());
-
-    // Only add icon if this header has a die value
-    const dieValue = getDieFromHeader(header);
-    if (!dieValue) return;
+    // Remove existing dice icon if present
+    const existingIcon = header.querySelector(".dice-icon");
+    if (existingIcon) {
+        existingIcon.remove();
+    }
+    
+    // IMPORTANT: Only attach icon if THIS header contains a <c> tag
+    const cTag = header.querySelector('c');
+    if (!cTag) {
+        return; // Don't add icon if no die value in this header
+    }
 
     const icon = document.createElement("span");
     icon.classList.add("dice-icon");
     icon.innerText = "🎲";
     icon.style.cursor = "pointer";
-    icon.style.marginRight = "5px";
+    icon.style.marginLeft = "5px";
     icon.style.display = "inline-block";
+    icon.style.userSelect = "none";
 
     icon.addEventListener("click", (e) => {
-        e.stopPropagation(); // Prevent event bubbling
+        e.stopPropagation();
+        e.preventDefault();
+        
+        // Read the die value AT CLICK TIME
         const dieValue = getDieFromHeader(header);
-        console.log("Dice icon clicked, die value:", dieValue, "Header:", header);
+        console.log("Dice icon clicked for header:", header.innerText, "Die:", dieValue);
+        
         if (!dieValue) {
-            console.log("No die value found for header");
+            console.warn("No die value found for this header");
             return;
         }
 
-        dicePool.push({ header, value: dieValue, selected: false });
+        // Store reference to header element
+        dicePool.push({ 
+            header: header, 
+            value: dieValue, 
+            selected: false 
+        });
+        
         if (!dicePoolPanel) createDicePoolPanel();
         updateDicePoolPanel();
     });
 
-    header.prepend(icon);
+    header.appendChild(icon);
 }
 
-// Scan existing headers - IMPROVED to prevent multiple calls
+// Scan all headers and attach dice icons
 function scanExistingHeaders() {
-    console.log("Scanning for headers...");
+    console.log("Scanning for headers with dice values...");
     
-    // Remove ALL existing dice icons first
-    const allExistingIcons = document.querySelectorAll(".dice-icon");
-    allExistingIcons.forEach(icon => icon.remove());
+    // Remove ALL existing dice icons first to prevent duplicates
+    document.querySelectorAll(".dice-icon").forEach(icon => icon.remove());
     
-    // Try multiple possible selectors for headers that might contain dice
+    // Find all headers that might have dice
     const selectors = [
-        ".trait-group h2",
-        ".trait-group h2.inline", 
-        ".attribute h2",
-        ".trait h2",
-        "h2[contenteditable]"
+        ".trait-group h2:not(.template h2)",
+        ".attribute h2:not(.template h2)",
+        ".trait h2:not(.template h2)"
     ];
     
-    let headers = [];
+    let headersFound = 0;
     selectors.forEach(selector => {
-        const found = document.querySelectorAll(selector);
-        console.log(`Selector ${selector} found ${found.length} elements`);
-        headers = headers.concat(Array.from(found));
+        const headers = document.querySelectorAll(selector);
+        console.log(`Selector "${selector}" found ${headers.length} headers`);
+        
+        headers.forEach(header => {
+            // Only attach if THIS header contains a <c> tag
+            if (header.querySelector('c')) {
+                attachDiceIcon(header);
+                headersFound++;
+            }
+        });
     });
     
-    // Remove duplicates
-    headers = [...new Set(headers)];
-    
-    console.log(`Total unique headers found: ${headers.length}`);
-    headers.forEach(header => {
-        attachDiceIcon(header);
-    });
+    console.log(`Total headers with dice icons: ${headersFound}`);
 }
 
-// Observe dynamically added headers - FIXED to prevent duplicate observers
+// Observe for dynamically added content
 let headerObserver = null;
 
 function observeNewHeaders() {
-    // Only create one observer
     if (headerObserver) return;
     
     headerObserver = new MutationObserver((mutations) => {
-        let headersAdded = false;
+        let shouldRescan = false;
         
         mutations.forEach(mutation => {
-            // Check for added nodes
             mutation.addedNodes.forEach(node => {
                 if (node.nodeType === 1) {
-                    // Check if this is any kind of header or contains headers
-                    if (node.matches && (node.matches('h2') || node.matches('.trait-group h2') || node.matches('.trait-group h2.inline') || node.matches('.attribute h2'))) {
-                        console.log("New header added:", node);
-                        attachDiceIcon(node);
-                        headersAdded = true;
+                    // Check if trait-group or attribute was added
+                    if (node.matches && (node.matches('.trait-group') || node.matches('.attribute') || node.matches('.trait'))) {
+                        shouldRescan = true;
                     }
                     
-                    // Check for trait groups being added
-                    if (node.matches && (node.matches('.trait-group') || node.matches('.attribute'))) {
-                        console.log("New trait group/attribute added:", node);
-                        const headers = node.querySelectorAll('h2');
-                        headers.forEach(attachDiceIcon);
-                        headersAdded = true;
+                    // Check if a <c> tag was added
+                    if (node.matches && node.matches('c')) {
+                        shouldRescan = true;
                     }
                     
-                    // Check inside added nodes for headers
+                    // Check inside added nodes
                     if (node.querySelector) {
-                        const headers = node.querySelectorAll('h2, .trait-group h2, .attribute h2');
-                        if (headers.length > 0) {
-                            console.log(`Found ${headers.length} headers in added node`);
-                            headers.forEach(attachDiceIcon);
-                            headersAdded = true;
+                        if (node.querySelector('.trait-group, .attribute, .trait, c')) {
+                            shouldRescan = true;
                         }
                     }
                 }
             });
         });
         
-        if (headersAdded) {
-            console.log("New headers were added, updating...");
+        if (shouldRescan) {
+            console.log("Content changed, rescanning headers...");
+            setTimeout(() => scanExistingHeaders(), 100);
         }
     });
     
-    // Observe the entire document for changes
     headerObserver.observe(document.body, { 
         childList: true, 
-        subtree: true,
-        characterData: true 
+        subtree: true 
     });
 }
 
-// Enhanced event handler to catch content changes
-function enhanceEventHandlers() {
-    // Override the existing blur event handler to rescan after content changes
-    document.addEventListener('blur', function(e) {
-        if (e.target.hasAttribute('contenteditable')) {
-            console.log("Contenteditable blurred, rescanning headers...");
-            // Wait for the text_to_html conversion to complete
-            setTimeout(() => {
-                scanExistingHeaders();
-            }, 100);
-        }
-    }, true);
-    
-    // Also rescan when focus is lost from any input
-    document.addEventListener('focusout', function(e) {
-        if (e.target.matches('input, textarea, [contenteditable]')) {
-            setTimeout(() => {
-                scanExistingHeaders();
-            }, 100);
-        }
-    }, true);
-}
-
-// Dice pool panel UI
+// Create the dice pool panel
 function createDicePoolPanel() {
     dicePoolPanel = document.createElement("div");
     dicePoolPanel.id = "dice-pool-panel";
-    dicePoolPanel.style.position = "fixed";
-    dicePoolPanel.style.bottom = "20px";
-    dicePoolPanel.style.right = "20px";
-    dicePoolPanel.style.background = "#fff";
-    dicePoolPanel.style.border = "2px solid #C50852";
-    dicePoolPanel.style.padding = "10px";
-    dicePoolPanel.style.zIndex = "1000";
-    dicePoolPanel.style.maxWidth = "250px";
-    dicePoolPanel.style.fontFamily = "sans-serif";
-    dicePoolPanel.innerHTML = "<b>Dice Pool</b><br>";
+    dicePoolPanel.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: #fff;
+        border: 2px solid #C50852;
+        border-radius: 8px;
+        padding: 15px;
+        z-index: 10000;
+        max-width: 300px;
+        font-family: sans-serif;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    `;
     document.body.appendChild(dicePoolPanel);
 }
 
+// Update the dice pool panel display
 function updateDicePoolPanel() {
     if (!dicePoolPanel) return;
-    dicePoolPanel.innerHTML = "<b>Dice Pool</b><br>";
+    
+    dicePoolPanel.innerHTML = "<div style='font-weight: bold; margin-bottom: 10px; font-size: 16px;'>🎲 Dice Pool</div>";
+
+    if (dicePool.length === 0) {
+        dicePoolPanel.innerHTML += "<div style='color: #666; font-style: italic;'>Click dice icons to add dice</div>";
+    }
 
     dicePool.forEach((die, index) => {
+        const wrapper = document.createElement("div");
+        wrapper.style.cssText = "margin: 5px 0; display: flex; align-items: center; gap: 8px;";
+        
         const span = document.createElement("span");
-        span.style.margin = "2px";
-        span.style.padding = "4px 6px";
-        span.style.border = "1px solid #000";
-        span.style.cursor = "pointer";
-        span.style.display = "inline-block";
-        span.textContent = die.value;
-        span.title = die.header.innerText.trim();
-
-        span.style.background = die.selected ? "#C50852" : "";
-        span.style.color = die.selected ? "#fff" : "#000";
+        span.style.cssText = `
+            padding: 6px 12px;
+            border: 2px solid ${die.selected ? '#C50852' : '#ccc'};
+            background: ${die.selected ? '#C50852' : '#fff'};
+            color: ${die.selected ? '#fff' : '#000'};
+            cursor: pointer;
+            display: inline-block;
+            border-radius: 4px;
+            font-weight: bold;
+            min-width: 40px;
+            text-align: center;
+        `;
+        
+        // Re-read the die value from the header at display time
+        const currentDieValue = getDieFromHeader(die.header);
+        span.textContent = currentDieValue || die.value;
+        
+        // Update stored value if it changed
+        if (currentDieValue && currentDieValue !== die.value) {
+            console.log(`Die value updated from ${die.value} to ${currentDieValue}`);
+            die.value = currentDieValue;
+        }
+        
+        const label = document.createElement("span");
+        label.textContent = die.header.innerText.trim();
+        label.style.cssText = "flex: 1; font-size: 14px;";
 
         span.addEventListener("click", () => {
             const selectedCount = dicePool.filter(d => d.selected).length;
-            if (!die.selected && selectedCount >= 3) return;
+            if (!die.selected && selectedCount >= 3) {
+                alert("You can only select up to 3 dice!");
+                return;
+            }
             die.selected = !die.selected;
             updateDicePoolPanel();
         });
+        
+        const removeBtn = document.createElement("button");
+        removeBtn.textContent = "×";
+        removeBtn.style.cssText = `
+            background: #ff4444;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            width: 24px;
+            height: 24px;
+            cursor: pointer;
+            font-size: 18px;
+            line-height: 1;
+        `;
+        removeBtn.addEventListener("click", () => {
+            dicePool.splice(index, 1);
+            if (dicePool.length === 0) {
+                dicePoolPanel.remove();
+                dicePoolPanel = null;
+            } else {
+                updateDicePoolPanel();
+            }
+        });
 
-        dicePoolPanel.appendChild(span);
+        wrapper.appendChild(span);
+        wrapper.appendChild(label);
+        wrapper.appendChild(removeBtn);
+        dicePoolPanel.appendChild(wrapper);
     });
 
-    if (!document.getElementById("dice-roll-btn")) {
-        const btn = document.createElement("button");
-        btn.id = "dice-roll-btn";
-        btn.textContent = "Roll Dice";
-        btn.style.display = "block";
-        btn.style.marginTop = "5px";
-        btn.addEventListener("click", rollDicePool);
-        dicePoolPanel.appendChild(btn);
-        
-        // Add clear button
-        const clearBtn = document.createElement("button");
-        clearBtn.textContent = "Clear Pool";
-        clearBtn.style.marginLeft = "5px";
-        clearBtn.addEventListener("click", () => {
-            dicePool = [];
-            dicePoolPanel.remove();
-            dicePoolPanel = null;
-        });
-        dicePoolPanel.appendChild(clearBtn);
-    }
+    // Add buttons container
+    const btnContainer = document.createElement("div");
+    btnContainer.style.cssText = "margin-top: 15px; display: flex; gap: 8px;";
+    
+    const rollBtn = document.createElement("button");
+    rollBtn.textContent = "Roll Dice";
+    rollBtn.style.cssText = `
+        flex: 1;
+        background: #C50852;
+        color: white;
+        border: none;
+        padding: 10px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: bold;
+    `;
+    rollBtn.addEventListener("click", rollDicePool);
+    
+    const clearBtn = document.createElement("button");
+    clearBtn.textContent = "Clear All";
+    clearBtn.style.cssText = `
+        background: #666;
+        color: white;
+        border: none;
+        padding: 10px 15px;
+        border-radius: 4px;
+        cursor: pointer;
+    `;
+    clearBtn.addEventListener("click", () => {
+        dicePool = [];
+        dicePoolPanel.remove();
+        dicePoolPanel = null;
+    });
+    
+    btnContainer.appendChild(rollBtn);
+    btnContainer.appendChild(clearBtn);
+    dicePoolPanel.appendChild(btnContainer);
 }
 
-// Roll dice
+// Roll the selected dice
 function rollDicePool() {
     const selected = dicePool.filter(d => d.selected);
-    if (selected.length === 0) return alert("Select up to 3 dice!");
+    if (selected.length === 0) {
+        alert("Please select at least one die to roll!");
+        return;
+    }
+    
+    if (selected.length > 3) {
+        alert("You can only roll up to 3 dice!");
+        return;
+    }
 
-    const totals = selected.slice(0, 2);
-    const effect = selected[2];
+    // First 2 dice are for total, 3rd is effect die
+    const totalDice = selected.slice(0, 2);
+    const effectDie = selected[2];
 
     const results = selected.map(d => {
-        let size = parseInt(d.value.replace("d", "").replace("0","10").replace("2","12"));
+        // Re-read die value one more time before rolling
+        const currentValue = getDieFromHeader(d.header) || d.value;
+        let size = parseInt(currentValue.replace("d", ""));
+        // Handle d10 (stored as 0) and d12 (stored as 2)
+        if (size === 0) size = 10;
+        if (size === 2) size = 12;
+        
         const roll = Math.floor(Math.random() * size) + 1;
-        return { header: d.header.innerText.trim(), die: d.value, roll };
+        return { 
+            header: d.header.innerText.trim(), 
+            die: currentValue, 
+            roll: roll,
+            size: size
+        };
     });
 
-    let resultText = "";
-    if (totals.length) {
-        resultText += "✅ Totals:\n";
-        totals.forEach(t => {
-            const r = results.find(r => r.header === t.header);
-            resultText += `${r.header}: ${r.die} → ${r.roll}\n`;
+    // Calculate total
+    let total = 0;
+    let resultText = "🎲 DICE ROLL RESULTS\n" + "=".repeat(30) + "\n\n";
+    
+    if (totalDice.length > 0) {
+        resultText += "📊 TOTAL DICE:\n";
+        totalDice.forEach((d, idx) => {
+            const r = results[idx];
+            resultText += `  ${r.header}: ${r.die} → ${r.roll}\n`;
+            total += r.roll;
         });
+        resultText += `\n  ✨ Total: ${total}\n\n`;
     }
-    if (effect) {
-        const r = results.find(r => r.header === effect.header);
-        resultText += `⭐ Effect: ${r.die} → ${r.roll}\n`;
+    
+    if (effectDie) {
+        const r = results[2];
+        resultText += `⭐ EFFECT DIE:\n`;
+        resultText += `  ${r.header}: ${r.die} → ${r.roll}\n\n`;
     }
 
-    const hitches = results.filter(r => r.roll === 1).map(r => r.die);
-    if (hitches.length) resultText += `⚠ Hitches: ${hitches.join(", ")}`;
+    // Check for hitches (rolling a 1)
+    const hitches = results.filter(r => r.roll === 1);
+    if (hitches.length > 0) {
+        resultText += `⚠️  HITCHES (rolled 1):\n`;
+        hitches.forEach(h => {
+            resultText += `  ${h.header} (${h.die})\n`;
+        });
+    }
 
     alert(resultText);
 
+    // Clear pool after rolling
     dicePool = [];
     dicePoolPanel.remove();
     dicePoolPanel = null;
 }
 
-// Initialize after window load - FIXED to prevent multiple initializations
+// Initialize the dice system
 let diceSystemInitialized = false;
 
 function initializeDiceSystem() {
-    if (diceSystemInitialized) return;
+    if (diceSystemInitialized) {
+        console.log("Dice system already initialized");
+        return;
+    }
     diceSystemInitialized = true;
     
     console.log("Initializing dice pool system...");
-    // Initial scan after a brief delay to ensure DOM is fully loaded
+    
+    // Wait for DOM to be fully ready
     setTimeout(() => {
         scanExistingHeaders();
         observeNewHeaders();
-        enhanceEventHandlers();
+        console.log("Dice system initialized successfully");
     }, 500);
 }
 
-// Enhanced the existing init_event_handlers to rescan headers - FIXED to prevent multiple calls
-const originalInitEventHandlers = init_event_handlers;
-init_event_handlers = function(parent) {
-    originalInitEventHandlers(parent);
-    setTimeout(() => {
-        console.log("Event handlers initialized, rescanning headers...");
-        scanExistingHeaders();
-    }, 100);
+// Hook into window load
+const originalWindowOnload = window.onload;
+window.onload = function() {
+    // Call original onload
+    if (originalWindowOnload) {
+        originalWindowOnload();
+    }
+    
+    // Initialize dice system
+    initializeDiceSystem();
 };
 
-// Replace window.load event with a single initialization call
-window.addEventListener("load", initializeDiceSystem);
-
 // Manual rescan function for debugging
-window.rescanDiceHeaders = scanExistingHeaders;
+window.rescanDiceHeaders = function() {
+    console.log("Manual rescan triggered");
+    scanExistingHeaders();
+};
