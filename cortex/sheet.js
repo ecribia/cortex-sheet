@@ -667,6 +667,7 @@ window.onload = function()
 
 let dicePool = [];
 let dicePoolPanel = null;
+let rollHistory = []; // Store roll history
 
 // Convert <c> value to die notation
 function getDieFromCValue(cValue) {
@@ -885,7 +886,10 @@ function updateDicePoolPanel() {
             text-align: center;
             font-size: 15px;
         `;
-        span.textContent = count > 1 ? `${dieValue} × ${count}` : dieValue;
+        
+        // Use dice icon instead of text
+        const diceIcon = createDiceIcon(dieValue);
+        span.innerHTML = count > 1 ? `${diceIcon} × ${count}` : diceIcon;
         
         const removeBtn = document.createElement("button");
         removeBtn.textContent = "×";
@@ -957,6 +961,23 @@ function updateDicePoolPanel() {
     dicePoolPanel.appendChild(btnContainer);
 }
 
+// Helper function to create dice icon HTML matching the <c> tag style
+function createDiceIcon(dieValue) {
+    // Extract the number from d4, d6, d8, d10, d12
+    let number;
+    switch(dieValue) {
+        case 'd4': number = '4'; break;
+        case 'd6': number = '6'; break;
+        case 'd8': number = '8'; break;
+        case 'd10': number = '0'; break;
+        case 'd12': number = '2'; break;
+        default: number = dieValue.replace('d', '');
+    }
+    
+    // Return HTML that mimics the <c> tag styling
+    return `<c style="display: inline-block;">${number}</c>`;
+}
+
 // Roll the selected dice - CORTEX PRIME STYLE
 function rollDicePool() {
     if (dicePool.length === 0) {
@@ -1011,6 +1032,25 @@ function showRollResultsPanel(results) {
     let selectedTotal = [];
     let selectedEffect = null;
 
+    // Separate hitches from selectable dice
+    const hitches = results.filter(r => r.roll === 1);
+    const selectableDice = results.filter(r => r.roll !== 1);
+    
+    // Auto-fill if less than 3 selectable dice - d4 is ONLY for effect, never shown in list
+    let autoD4 = null;
+    if (selectableDice.length < 3) {
+        autoD4 = {
+            header: "Plot Die",
+            die: "d4",
+            roll: 0,
+            size: 4,
+            id: 'auto-d4',
+            isAutoD4: true
+        };
+        // Auto-select the d4 as effect immediately
+        selectedEffect = 'auto-d4';
+    }
+
     // Title
     const title = document.createElement("div");
     title.innerHTML = "<strong style='font-size: 18px;'>🎲 Roll Results - Select Dice</strong>";
@@ -1020,8 +1060,75 @@ function showRollResultsPanel(results) {
     // Instructions
     const instructions = document.createElement("div");
     instructions.style.cssText = "color: #666; margin-bottom: 15px; font-size: 13px; line-height: 1.4;";
-    instructions.innerHTML = "Click to select:<br>• <strong>2 dice</strong> for your total<br>• <strong>1 die</strong> for effect";
+    if (autoD4) {
+        instructions.innerHTML = "Click to select <strong>up to 2 dice</strong> for your total<br><em>(Effect is automatically d4)</em>";
+    } else {
+        instructions.innerHTML = "Click to select:<br>• <strong>2 dice</strong> for your total<br>• <strong>1 die</strong> for effect";
+    }
     panel.appendChild(instructions);
+
+    // Auto-select buttons (only show if no auto-d4)
+    if (!autoD4) {
+        const autoButtonsDiv = document.createElement("div");
+        autoButtonsDiv.style.cssText = "display: flex; gap: 8px; margin-bottom: 15px;";
+        
+        const maxTotalBtn = document.createElement("button");
+        maxTotalBtn.textContent = "Max Total";
+        maxTotalBtn.style.cssText = `
+            flex: 1;
+            background: #C50852;
+            color: white;
+            border: none;
+            padding: 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+        `;
+        maxTotalBtn.addEventListener("click", () => {
+            // Sort by roll value descending
+            const sorted = [...selectableDice].sort((a, b) => b.roll - a.roll);
+            selectedTotal = [sorted[0].id, sorted[1].id];
+            selectedEffect = sorted[2] ? sorted[2].id : null;
+            updateResultsDisplay();
+        });
+        
+        const maxEffectBtn = document.createElement("button");
+        maxEffectBtn.textContent = "Max Effect";
+        maxEffectBtn.style.cssText = `
+            flex: 1;
+            background: #FFA500;
+            color: white;
+            border: none;
+            padding: 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+        `;
+        maxEffectBtn.addEventListener("click", () => {
+            // Find the largest die size among selectable dice only (not auto-d4)
+            const maxSize = Math.max(...selectableDice.map(d => d.size));
+            
+            // Get all dice with that size
+            const maxSizeDice = selectableDice.filter(d => d.size === maxSize);
+            
+            // Among dice with max size, choose the one with LOWEST roll (to maximize total)
+            const effectDie = maxSizeDice.sort((a, b) => a.roll - b.roll)[0];
+            
+            // For total, get the remaining dice and pick the 2 highest rolls
+            const remainingDice = selectableDice.filter(d => d.id !== effectDie.id);
+            const totalDice = remainingDice.sort((a, b) => b.roll - a.roll).slice(0, 2);
+            
+            selectedEffect = effectDie.id;
+            selectedTotal = totalDice.map(d => d.id);
+            updateResultsDisplay();
+        });
+        
+        autoButtonsDiv.appendChild(maxTotalBtn);
+        autoButtonsDiv.appendChild(maxEffectBtn);
+        panel.appendChild(autoButtonsDiv);
+    }
 
     // Results container
     const resultsContainer = document.createElement("div");
@@ -1030,22 +1137,26 @@ function showRollResultsPanel(results) {
     function updateResultsDisplay() {
         resultsContainer.innerHTML = "";
         
-        results.forEach(result => {
+        // Show selectable dice first
+        selectableDice.forEach(result => {
             const resultDiv = document.createElement("div");
             const isTotal = selectedTotal.includes(result.id);
             const isEffect = selectedEffect === result.id;
             
             let bgColor = "#f5f5f5";
             let borderColor = "#ccc";
+            let textColor = "#000";
             let label = "";
             
             if (isTotal) {
-                bgColor = "#C50852";
-                borderColor = "#C50852";
+                bgColor = "#90C490"; // Greenish color from background
+                borderColor = "#90C490";
+                textColor = "#000";
                 label = " 📊";
             } else if (isEffect) {
                 bgColor = "#FFA500";
                 borderColor = "#FFA500";
+                textColor = "#fff";
                 label = " ⭐";
             }
             
@@ -1054,7 +1165,7 @@ function showRollResultsPanel(results) {
                 margin: 8px 0;
                 border: 2px solid ${borderColor};
                 background: ${bgColor};
-                color: ${(isTotal || isEffect) ? 'white' : 'black'};
+                color: ${textColor};
                 border-radius: 6px;
                 cursor: pointer;
                 display: flex;
@@ -1064,8 +1175,10 @@ function showRollResultsPanel(results) {
                 transition: all 0.2s;
             `;
             
+            const diceIcon = createDiceIcon(result.die);
+            const rollDisplay = result.isAutoD4 ? '' : `: ${result.roll}`;
             resultDiv.innerHTML = `
-                <span><strong>${result.die}</strong>: ${result.roll}</span>
+                <span><strong>${diceIcon}</strong>${rollDisplay}</span>
                 <span style="font-size: 14px;">${label}</span>
             `;
             
@@ -1076,14 +1189,20 @@ function showRollResultsPanel(results) {
                 } else if (isEffect) {
                     selectedEffect = null;
                 } else {
-                    // Try to select this die
-                    if (selectedTotal.length < 2) {
-                        selectedTotal.push(result.id);
-                    } else if (selectedEffect === null) {
+                    // Check if this is the effect-only d4
+                    if (result.isEffectOnly) {
+                        // Can only be effect
                         selectedEffect = result.id;
                     } else {
-                        // Everything is selected, replace the effect die
-                        selectedEffect = result.id;
+                        // Try to select this die for total or effect
+                        if (selectedTotal.length < 2) {
+                            selectedTotal.push(result.id);
+                        } else if (selectedEffect === null) {
+                            selectedEffect = result.id;
+                        } else {
+                            // Everything is selected, replace the effect die
+                            selectedEffect = result.id;
+                        }
                     }
                 }
                 updateResultsDisplay();
@@ -1091,6 +1210,74 @@ function showRollResultsPanel(results) {
             
             resultsContainer.appendChild(resultDiv);
         });
+        
+        // Show auto-d4 if present (effect only)
+        if (autoD4) {
+            const d4Div = document.createElement("div");
+            const isEffect = selectedEffect === autoD4.id;
+            
+            let bgColor = isEffect ? "#FFA500" : "#f5f5f5";
+            let borderColor = isEffect ? "#FFA500" : "#ccc";
+            let textColor = isEffect ? "#fff" : "#000";
+            
+            d4Div.style.cssText = `
+                padding: 12px;
+                margin: 8px 0;
+                border: 2px solid ${borderColor};
+                background: ${bgColor};
+                color: ${textColor};
+                border-radius: 6px;
+                cursor: pointer;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                font-size: 16px;
+                transition: all 0.2s;
+            `;
+            
+            const diceIcon = createDiceIcon(autoD4.die);
+            d4Div.innerHTML = `
+                <span><strong>${diceIcon}</strong> <em style="font-size: 13px;">(Effect only)</em></span>
+                <span style="font-size: 14px;">${isEffect ? '⭐' : ''}</span>
+            `;
+            
+            d4Div.addEventListener("click", () => {
+                if (isEffect) {
+                    selectedEffect = null;
+                } else {
+                    selectedEffect = autoD4.id;
+                }
+                updateResultsDisplay();
+            });
+            
+            resultsContainer.appendChild(d4Div);
+        }
+        
+        // Show hitches separately (non-selectable)
+        if (hitches.length > 0) {
+            const hitchHeader = document.createElement("div");
+            hitchHeader.style.cssText = "margin-top: 15px; margin-bottom: 5px; font-weight: bold; color: #666; font-size: 13px;";
+            hitchHeader.textContent = "⚠️ HITCHES (Not Selectable)";
+            resultsContainer.appendChild(hitchHeader);
+            
+            hitches.forEach(result => {
+                const hitchDiv = document.createElement("div");
+                hitchDiv.style.cssText = `
+                    padding: 10px;
+                    margin: 5px 0;
+                    border: 2px solid #ffc107;
+                    background: #fff3cd;
+                    color: #856404;
+                    border-radius: 6px;
+                    font-size: 15px;
+                    opacity: 0.7;
+                `;
+                
+                const diceIcon = createDiceIcon(result.die);
+                hitchDiv.innerHTML = `<strong>${diceIcon}</strong>: 1`;
+                resultsContainer.appendChild(hitchDiv);
+            });
+        }
     }
 
     updateResultsDisplay();
@@ -1110,8 +1297,11 @@ function showRollResultsPanel(results) {
     panel.appendChild(summaryDiv);
 
     function updateSummary() {
-        const totalDice = results.filter(r => selectedTotal.includes(r.id));
-        const effectDie = results.find(r => selectedEffect === r.id);
+        const totalDice = selectableDice.filter(r => selectedTotal.includes(r.id));
+        let effectDie = selectableDice.find(r => selectedEffect === r.id);
+        if (!effectDie && autoD4 && selectedEffect === autoD4.id) {
+            effectDie = autoD4;
+        }
         
         let summaryHTML = "";
         
@@ -1122,7 +1312,8 @@ function showRollResultsPanel(results) {
         }
         
         if (effectDie) {
-            summaryHTML += `<div><strong>⭐ Effect:</strong> ${effectDie.die}</div>`;
+            const effectIcon = createDiceIcon(effectDie.die);
+            summaryHTML += `<div><strong>⭐ Effect:</strong> ${effectIcon}</div>`;
         }
         
         if (summaryHTML === "") {
@@ -1139,22 +1330,6 @@ function showRollResultsPanel(results) {
         updateSummary();
     };
     updateSummary();
-
-    // Check for hitches (1s)
-    const hitches = results.filter(r => r.roll === 1);
-    if (hitches.length > 0) {
-        const hitchDiv = document.createElement("div");
-        hitchDiv.style.cssText = `
-            background: #fff3cd;
-            border: 1px solid #ffc107;
-            padding: 10px;
-            border-radius: 6px;
-            margin-bottom: 15px;
-            font-size: 14px;
-        `;
-        hitchDiv.innerHTML = `⚠️ <strong>Hitches:</strong> ${hitches.map(h => h.die).join(", ")}`;
-        panel.appendChild(hitchDiv);
-    }
 
     // Buttons
     const btnContainer = document.createElement("div");
@@ -1178,6 +1353,27 @@ function showRollResultsPanel(results) {
             alert("Please select at least one die!");
             return;
         }
+        
+        // Save to history before closing
+        const totalDice = selectableDice.filter(r => selectedTotal.includes(r.id));
+        let effectDie = selectableDice.find(r => selectedEffect === r.id);
+        if (!effectDie && autoD4 && selectedEffect === autoD4.id) {
+            effectDie = autoD4;
+        }
+        const totalSum = totalDice.reduce((sum, d) => sum + d.roll, 0);
+        
+        const historyEntry = {
+            timestamp: new Date(),
+            allResults: results,
+            totalDice: totalDice,
+            effectDie: effectDie,
+            totalSum: totalSum,
+            hitches: hitches
+        };
+        
+        rollHistory.unshift(historyEntry); // Add to beginning
+        if (rollHistory.length > 20) rollHistory.pop(); // Keep last 20 rolls
+        
         panel.remove();
         // Clear the dice pool
         dicePool = [];
@@ -1247,3 +1443,176 @@ window.rescanDiceHeaders = function() {
     console.log("Manual rescan triggered");
     scanExistingHeaders();
 };
+
+// Show roll history panel
+function showRollHistory() {
+    // Remove old panel if exists
+    const oldPanel = document.getElementById("roll-history-panel");
+    if (oldPanel) oldPanel.remove();
+
+    const panel = document.createElement("div");
+    panel.id = "roll-history-panel";
+    panel.style.cssText = `
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: white;
+        border: 3px solid #C50852;
+        border-radius: 10px;
+        padding: 20px;
+        z-index: 10002;
+        width: 450px;
+        max-height: 80vh;
+        overflow-y: auto;
+        box-shadow: 0 8px 16px rgba(0,0,0,0.3);
+        font-family: sans-serif;
+    `;
+
+    // Title
+    const title = document.createElement("div");
+    title.innerHTML = "<strong style='font-size: 18px;'>📜 Roll History</strong>";
+    title.style.marginBottom = "15px";
+    panel.appendChild(title);
+
+    if (rollHistory.length === 0) {
+        const emptyMsg = document.createElement("div");
+        emptyMsg.style.cssText = "color: #666; font-style: italic; text-align: center; padding: 20px;";
+        emptyMsg.textContent = "No rolls yet. Roll some dice to see history!";
+        panel.appendChild(emptyMsg);
+    } else {
+        rollHistory.forEach((entry, index) => {
+            const entryDiv = document.createElement("div");
+            entryDiv.style.cssText = `
+                border: 1px solid #ddd;
+                border-radius: 6px;
+                padding: 12px;
+                margin-bottom: 12px;
+                background: #f9f9f9;
+            `;
+
+            // Timestamp
+            const timeDiv = document.createElement("div");
+            timeDiv.style.cssText = "color: #666; font-size: 12px; margin-bottom: 8px;";
+            const time = entry.timestamp;
+            timeDiv.textContent = `${time.toLocaleTimeString()}`;
+            entryDiv.appendChild(timeDiv);
+
+            // All rolled dice
+            const allDiceDiv = document.createElement("div");
+            allDiceDiv.style.cssText = "margin-bottom: 8px; font-size: 13px;";
+            const diceList = entry.allResults.map(r => {
+                const icon = createDiceIcon(r.die);
+                return `${icon}: ${r.roll}`;
+            }).join(", ");
+            allDiceDiv.innerHTML = `<strong>Rolled:</strong> ${diceList}`;
+            entryDiv.appendChild(allDiceDiv);
+
+            // Total
+            if (entry.totalDice.length > 0) {
+                const totalDiv = document.createElement("div");
+                totalDiv.style.cssText = "margin-bottom: 4px; font-size: 14px;";
+                const totalDiceStr = entry.totalDice.map(d => d.roll).join(" + ");
+                totalDiv.innerHTML = `<strong>📊 Total:</strong> ${entry.totalSum} <span style="color: #666; font-size: 12px;">(${totalDiceStr})</span>`;
+                entryDiv.appendChild(totalDiv);
+            }
+
+            // Effect
+            if (entry.effectDie) {
+                const effectDiv = document.createElement("div");
+                effectDiv.style.cssText = "margin-bottom: 4px; font-size: 14px;";
+                const effectIcon = createDiceIcon(entry.effectDie.die);
+                effectDiv.innerHTML = `<strong>⭐ Effect:</strong> ${effectIcon}`;
+                entryDiv.appendChild(effectDiv);
+            }
+
+            // Hitches
+            if (entry.hitches.length > 0) {
+                const hitchDiv = document.createElement("div");
+                hitchDiv.style.cssText = "font-size: 13px; color: #856404;";
+                const hitchIcons = entry.hitches.map(h => createDiceIcon(h.die)).join(", ");
+                hitchDiv.innerHTML = `<strong>⚠️ Hitches:</strong> ${hitchIcons}`;
+                entryDiv.appendChild(hitchDiv);
+            }
+
+            panel.appendChild(entryDiv);
+        });
+    }
+
+    // Close button
+    const closeBtn = document.createElement("button");
+    closeBtn.textContent = "Close";
+    closeBtn.style.cssText = `
+        width: 100%;
+        background: #666;
+        color: white;
+        border: none;
+        padding: 10px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: bold;
+        margin-top: 10px;
+    `;
+    closeBtn.addEventListener("click", () => panel.remove());
+    panel.appendChild(closeBtn);
+
+    // Clear history button
+    if (rollHistory.length > 0) {
+        const clearBtn = document.createElement("button");
+        clearBtn.textContent = "Clear History";
+        clearBtn.style.cssText = `
+            width: 100%;
+            background: #ff4444;
+            color: white;
+            border: none;
+            padding: 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-top: 8px;
+        `;
+        clearBtn.addEventListener("click", () => {
+            if (confirm("Clear all roll history?")) {
+                rollHistory = [];
+                panel.remove();
+            }
+        });
+        panel.appendChild(clearBtn);
+    }
+
+    document.body.appendChild(panel);
+}
+
+// Add roll history button to the page (you can call this on page load)
+window.addEventListener("load", function() {
+    // Wait a bit for the page to fully load
+    setTimeout(() => {
+        // Create a floating button that's always visible
+        const historyBtn = document.createElement("button");
+        historyBtn.id = "roll-history-btn";
+        historyBtn.innerHTML = "📜";
+        historyBtn.title = "Roll History";
+        historyBtn.style.cssText = `
+            position: fixed;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: #C50852;
+            color: white;
+            border: none;
+            width: 50px;
+            height: 50px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 24px;
+            z-index: 9999;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        `;
+        historyBtn.addEventListener("click", showRollHistory);
+        
+        document.body.appendChild(historyBtn);
+        console.log("Roll history button added!");
+    }, 1000);
+});
+
+// Also expose globally so it can be called manually
+window.showRollHistory = showRollHistory;
