@@ -851,47 +851,41 @@ function updateDicePoolPanel() {
         dicePoolPanel.innerHTML += "<div style='color: #666; font-style: italic;'>Click dice icons to add dice</div>";
     }
 
+    // Group dice by their value (d8, d12, etc.)
+    const groupedDice = {};
     dicePool.forEach((die, index) => {
+        // Re-read the die value from the header
+        const currentDieValue = getDieFromHeader(die.header);
+        const dieKey = currentDieValue || die.value;
+        
+        if (!groupedDice[dieKey]) {
+            groupedDice[dieKey] = [];
+        }
+        groupedDice[dieKey].push({ ...die, index, actualValue: dieKey });
+    });
+
+    // Display grouped dice
+    Object.keys(groupedDice).sort().forEach(dieValue => {
+        const diceGroup = groupedDice[dieValue];
+        const count = diceGroup.length;
+        
         const wrapper = document.createElement("div");
         wrapper.style.cssText = "margin: 5px 0; display: flex; align-items: center; gap: 8px;";
         
         const span = document.createElement("span");
         span.style.cssText = `
-            padding: 6px 12px;
-            border: 2px solid ${die.selected ? '#C50852' : '#ccc'};
-            background: ${die.selected ? '#C50852' : '#fff'};
-            color: ${die.selected ? '#fff' : '#000'};
-            cursor: pointer;
+            padding: 8px 14px;
+            border: 2px solid #C50852;
+            background: #fff;
+            color: #000;
             display: inline-block;
             border-radius: 4px;
             font-weight: bold;
-            min-width: 40px;
+            min-width: 50px;
             text-align: center;
+            font-size: 15px;
         `;
-        
-        // Re-read the die value from the header at display time
-        const currentDieValue = getDieFromHeader(die.header);
-        span.textContent = currentDieValue || die.value;
-        
-        // Update stored value if it changed
-        if (currentDieValue && currentDieValue !== die.value) {
-            console.log(`Die value updated from ${die.value} to ${currentDieValue}`);
-            die.value = currentDieValue;
-        }
-        
-        const label = document.createElement("span");
-        label.textContent = die.header.innerText.trim();
-        label.style.cssText = "flex: 1; font-size: 14px;";
-
-        span.addEventListener("click", () => {
-            const selectedCount = dicePool.filter(d => d.selected).length;
-            if (!die.selected && selectedCount >= 3) {
-                alert("You can only select up to 3 dice!");
-                return;
-            }
-            die.selected = !die.selected;
-            updateDicePoolPanel();
-        });
+        span.textContent = count > 1 ? `${dieValue} × ${count}` : dieValue;
         
         const removeBtn = document.createElement("button");
         removeBtn.textContent = "×";
@@ -905,9 +899,12 @@ function updateDicePoolPanel() {
             cursor: pointer;
             font-size: 18px;
             line-height: 1;
+            margin-left: auto;
         `;
         removeBtn.addEventListener("click", () => {
-            dicePool.splice(index, 1);
+            // Remove one die of this type
+            const indexToRemove = diceGroup[0].index;
+            dicePool.splice(indexToRemove, 1);
             if (dicePool.length === 0) {
                 dicePoolPanel.remove();
                 dicePoolPanel = null;
@@ -917,7 +914,6 @@ function updateDicePoolPanel() {
         });
 
         wrapper.appendChild(span);
-        wrapper.appendChild(label);
         wrapper.appendChild(removeBtn);
         dicePoolPanel.appendChild(wrapper);
     });
@@ -961,75 +957,257 @@ function updateDicePoolPanel() {
     dicePoolPanel.appendChild(btnContainer);
 }
 
-// Roll the selected dice
+// Roll the selected dice - CORTEX PRIME STYLE
 function rollDicePool() {
-    const selected = dicePool.filter(d => d.selected);
-    if (selected.length === 0) {
-        alert("Please select at least one die to roll!");
-        return;
-    }
-    
-    if (selected.length > 3) {
-        alert("You can only roll up to 3 dice!");
+    if (dicePool.length === 0) {
+        alert("Add some dice to the pool first!");
         return;
     }
 
-    // First 2 dice are for total, 3rd is effect die
-    const totalDice = selected.slice(0, 2);
-    const effectDie = selected[2];
-
-    const results = selected.map(d => {
+    // Roll ALL dice in the pool
+    const results = dicePool.map(d => {
         // Re-read die value one more time before rolling
         const currentValue = getDieFromHeader(d.header) || d.value;
         let size = parseInt(currentValue.replace("d", ""));
-        // Handle d10 (stored as 0) and d12 (stored as 2)
-        if (size === 0) size = 10;
-        if (size === 2) size = 12;
         
         const roll = Math.floor(Math.random() * size) + 1;
         return { 
             header: d.header.innerText.trim(), 
             die: currentValue, 
             roll: roll,
-            size: size
+            size: size,
+            id: Math.random() // unique ID for selection
         };
     });
 
-    // Calculate total
-    let total = 0;
-    let resultText = "🎲 DICE ROLL RESULTS\n" + "=".repeat(30) + "\n\n";
-    
-    if (totalDice.length > 0) {
-        resultText += "📊 TOTAL DICE:\n";
-        totalDice.forEach((d, idx) => {
-            const r = results[idx];
-            resultText += `  ${r.header}: ${r.die} → ${r.roll}\n`;
-            total += r.roll;
+    // Show results in a selection panel
+    showRollResultsPanel(results);
+}
+
+// Show roll results and let user pick total dice and effect die
+function showRollResultsPanel(results) {
+    // Remove old panel if exists
+    const oldPanel = document.getElementById("roll-results-panel");
+    if (oldPanel) oldPanel.remove();
+
+    const panel = document.createElement("div");
+    panel.id = "roll-results-panel";
+    panel.style.cssText = `
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: white;
+        border: 3px solid #C50852;
+        border-radius: 10px;
+        padding: 20px;
+        z-index: 10001;
+        min-width: 350px;
+        max-width: 500px;
+        box-shadow: 0 8px 16px rgba(0,0,0,0.3);
+        font-family: sans-serif;
+    `;
+
+    let selectedTotal = [];
+    let selectedEffect = null;
+
+    // Title
+    const title = document.createElement("div");
+    title.innerHTML = "<strong style='font-size: 18px;'>🎲 Roll Results - Select Dice</strong>";
+    title.style.marginBottom = "15px";
+    panel.appendChild(title);
+
+    // Instructions
+    const instructions = document.createElement("div");
+    instructions.style.cssText = "color: #666; margin-bottom: 15px; font-size: 13px; line-height: 1.4;";
+    instructions.innerHTML = "Click to select:<br>• <strong>2 dice</strong> for your total<br>• <strong>1 die</strong> for effect";
+    panel.appendChild(instructions);
+
+    // Results container
+    const resultsContainer = document.createElement("div");
+    resultsContainer.style.marginBottom = "15px";
+
+    function updateResultsDisplay() {
+        resultsContainer.innerHTML = "";
+        
+        results.forEach(result => {
+            const resultDiv = document.createElement("div");
+            const isTotal = selectedTotal.includes(result.id);
+            const isEffect = selectedEffect === result.id;
+            
+            let bgColor = "#f5f5f5";
+            let borderColor = "#ccc";
+            let label = "";
+            
+            if (isTotal) {
+                bgColor = "#C50852";
+                borderColor = "#C50852";
+                label = " 📊";
+            } else if (isEffect) {
+                bgColor = "#FFA500";
+                borderColor = "#FFA500";
+                label = " ⭐";
+            }
+            
+            resultDiv.style.cssText = `
+                padding: 12px;
+                margin: 8px 0;
+                border: 2px solid ${borderColor};
+                background: ${bgColor};
+                color: ${(isTotal || isEffect) ? 'white' : 'black'};
+                border-radius: 6px;
+                cursor: pointer;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                font-size: 16px;
+                transition: all 0.2s;
+            `;
+            
+            resultDiv.innerHTML = `
+                <span><strong>${result.die}</strong>: ${result.roll}</span>
+                <span style="font-size: 14px;">${label}</span>
+            `;
+            
+            resultDiv.addEventListener("click", () => {
+                // If clicking an already selected die, deselect it
+                if (isTotal) {
+                    selectedTotal = selectedTotal.filter(id => id !== result.id);
+                } else if (isEffect) {
+                    selectedEffect = null;
+                } else {
+                    // Try to select this die
+                    if (selectedTotal.length < 2) {
+                        selectedTotal.push(result.id);
+                    } else if (selectedEffect === null) {
+                        selectedEffect = result.id;
+                    } else {
+                        // Everything is selected, replace the effect die
+                        selectedEffect = result.id;
+                    }
+                }
+                updateResultsDisplay();
+            });
+            
+            resultsContainer.appendChild(resultDiv);
         });
-        resultText += `\n  ✨ Total: ${total}\n\n`;
-    }
-    
-    if (effectDie) {
-        const r = results[2];
-        resultText += `⭐ EFFECT DIE:\n`;
-        resultText += `  ${r.header}: ${r.die} → ${r.roll}\n\n`;
     }
 
-    // Check for hitches (rolling a 1)
+    updateResultsDisplay();
+    panel.appendChild(resultsContainer);
+
+    // Summary section
+    const summaryDiv = document.createElement("div");
+    summaryDiv.id = "roll-summary";
+    summaryDiv.style.cssText = `
+        background: #f9f9f9;
+        padding: 12px;
+        border-radius: 6px;
+        margin-bottom: 15px;
+        min-height: 60px;
+        border: 1px solid #ddd;
+    `;
+    panel.appendChild(summaryDiv);
+
+    function updateSummary() {
+        const totalDice = results.filter(r => selectedTotal.includes(r.id));
+        const effectDie = results.find(r => selectedEffect === r.id);
+        
+        let summaryHTML = "";
+        
+        if (totalDice.length > 0) {
+            const totalSum = totalDice.reduce((sum, d) => sum + d.roll, 0);
+            summaryHTML += `<div style="margin-bottom: 8px;"><strong>📊 Total:</strong> ${totalSum}`;
+            summaryHTML += ` <span style="color: #666; font-size: 13px;">(${totalDice.map(d => d.roll).join(" + ")})</span></div>`;
+        }
+        
+        if (effectDie) {
+            summaryHTML += `<div><strong>⭐ Effect:</strong> ${effectDie.die}</div>`;
+        }
+        
+        if (summaryHTML === "") {
+            summaryHTML = "<em style='color: #999;'>Select your dice...</em>";
+        }
+        
+        summaryDiv.innerHTML = summaryHTML;
+    }
+
+    // Update summary when selections change
+    const originalUpdate = updateResultsDisplay;
+    updateResultsDisplay = function() {
+        originalUpdate();
+        updateSummary();
+    };
+    updateSummary();
+
+    // Check for hitches (1s)
     const hitches = results.filter(r => r.roll === 1);
     if (hitches.length > 0) {
-        resultText += `⚠️  HITCHES (rolled 1):\n`;
-        hitches.forEach(h => {
-            resultText += `  ${h.header} (${h.die})\n`;
-        });
+        const hitchDiv = document.createElement("div");
+        hitchDiv.style.cssText = `
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 14px;
+        `;
+        hitchDiv.innerHTML = `⚠️ <strong>Hitches:</strong> ${hitches.map(h => h.die).join(", ")}`;
+        panel.appendChild(hitchDiv);
     }
 
-    alert(resultText);
+    // Buttons
+    const btnContainer = document.createElement("div");
+    btnContainer.style.cssText = "display: flex; gap: 10px;";
+    
+    const confirmBtn = document.createElement("button");
+    confirmBtn.textContent = "Confirm";
+    confirmBtn.style.cssText = `
+        flex: 1;
+        background: #28a745;
+        color: white;
+        border: none;
+        padding: 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: bold;
+        font-size: 15px;
+    `;
+    confirmBtn.addEventListener("click", () => {
+        if (selectedTotal.length === 0 && selectedEffect === null) {
+            alert("Please select at least one die!");
+            return;
+        }
+        panel.remove();
+        // Clear the dice pool
+        dicePool = [];
+        if (dicePoolPanel) {
+            dicePoolPanel.remove();
+            dicePoolPanel = null;
+        }
+    });
+    
+    const rerollBtn = document.createElement("button");
+    rerollBtn.textContent = "Reroll";
+    rerollBtn.style.cssText = `
+        background: #007bff;
+        color: white;
+        border: none;
+        padding: 12px 20px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: bold;
+    `;
+    rerollBtn.addEventListener("click", () => {
+        panel.remove();
+        rollDicePool();
+    });
+    
+    btnContainer.appendChild(confirmBtn);
+    btnContainer.appendChild(rerollBtn);
+    panel.appendChild(btnContainer);
 
-    // Clear pool after rolling
-    dicePool = [];
-    dicePoolPanel.remove();
-    dicePoolPanel = null;
+    document.body.appendChild(panel);
 }
 
 // Initialize the dice system
