@@ -1,3 +1,5 @@
+// Copy this ENTIRE file and replace your existing JavaScript
+
 function text_to_html(html)
 {
 	if (html.search(/^-/m) != -1)
@@ -419,6 +421,8 @@ function add_attribute(e)
 {
 	add_group(e, "attribute")
 	update_attribute_positions();
+	// ADDED: Rescan after adding attribute (FIX #2)
+	setTimeout(() => scanExistingHeaders(), 50);
 }
 function remove_attribute(e)
 {
@@ -662,12 +666,12 @@ window.onload = function()
 }
 
 // ============================================================================
-// DICE POOL SYSTEM - FIXED VERSION
+// DICE POOL SYSTEM - COMPLETE WITH ALL FIXES
 // ============================================================================
 
 let dicePool = [];
 let dicePoolPanel = null;
-let rollHistory = []; // Store roll history
+let rollHistory = [];
 
 // Convert <c> value to die notation
 function getDieFromCValue(cValue) {
@@ -682,9 +686,8 @@ function getDieFromCValue(cValue) {
     }
 }
 
-// IMPROVED: Get die value from header at the moment of clicking
+// Get die value from header at the moment of clicking
 function getDieFromHeader(header) {
-    // Look for <c> tag INSIDE this specific header (not in parent trait-group)
     let cTag = header.querySelector('c');
     
     if (!cTag) {
@@ -698,18 +701,16 @@ function getDieFromHeader(header) {
     return dieValue;
 }
 
-// Store reference to header element, not its text (so we can always re-read it)
+// Store reference to header element
 function attachDiceIcon(header) {
-    // Remove existing dice icon if present
     const existingIcon = header.querySelector(".dice-icon");
     if (existingIcon) {
         existingIcon.remove();
     }
     
-    // IMPORTANT: Only attach icon if THIS header contains a <c> tag
     const cTag = header.querySelector('c');
     if (!cTag) {
-        return; // Don't add icon if no die value in this header
+        return;
     }
 
     const icon = document.createElement("span");
@@ -724,7 +725,6 @@ function attachDiceIcon(header) {
         e.stopPropagation();
         e.preventDefault();
         
-        // Read the die value AT CLICK TIME
         const dieValue = getDieFromHeader(header);
         console.log("Dice icon clicked for header:", header.innerText, "Die:", dieValue);
         
@@ -733,7 +733,6 @@ function attachDiceIcon(header) {
             return;
         }
 
-        // Store reference to header element
         dicePool.push({ 
             header: header, 
             value: dieValue, 
@@ -751,10 +750,8 @@ function attachDiceIcon(header) {
 function scanExistingHeaders() {
     console.log("Scanning for headers with dice values...");
     
-    // Remove ALL existing dice icons first to prevent duplicates
     document.querySelectorAll(".dice-icon").forEach(icon => icon.remove());
     
-    // Find all headers that might have dice
     const selectors = [
         ".trait-group h2:not(.template h2)",
         ".attribute h2:not(.template h2)",
@@ -767,7 +764,6 @@ function scanExistingHeaders() {
         console.log(`Selector "${selector}" found ${headers.length} headers`);
         
         headers.forEach(header => {
-            // Only attach if THIS header contains a <c> tag
             if (header.querySelector('c')) {
                 attachDiceIcon(header);
                 headersFound++;
@@ -790,19 +786,21 @@ function observeNewHeaders() {
         mutations.forEach(mutation => {
             mutation.addedNodes.forEach(node => {
                 if (node.nodeType === 1) {
-                    // Check if trait-group or attribute was added
                     if (node.matches && (node.matches('.trait-group') || node.matches('.attribute') || node.matches('.trait'))) {
                         shouldRescan = true;
                     }
                     
-                    // Check if a <c> tag was added
                     if (node.matches && node.matches('c')) {
                         shouldRescan = true;
                     }
                     
-                    // Check inside added nodes
+                    // FIX #2: Also watch for h2 tags (for attributes)
+                    if (node.matches && node.matches('h2')) {
+                        shouldRescan = true;
+                    }
+                    
                     if (node.querySelector) {
-                        if (node.querySelector('.trait-group, .attribute, .trait, c')) {
+                        if (node.querySelector('.trait-group, .attribute, .trait, c, h2')) {
                             shouldRescan = true;
                         }
                     }
@@ -852,10 +850,8 @@ function updateDicePoolPanel() {
         dicePoolPanel.innerHTML += "<div style='color: #666; font-style: italic;'>Click dice icons to add dice</div>";
     }
 
-    // Group dice by their value (d8, d12, etc.)
     const groupedDice = {};
     dicePool.forEach((die, index) => {
-        // Re-read the die value from the header
         const currentDieValue = getDieFromHeader(die.header);
         const dieKey = currentDieValue || die.value;
         
@@ -865,7 +861,6 @@ function updateDicePoolPanel() {
         groupedDice[dieKey].push({ ...die, index, actualValue: dieKey });
     });
 
-    // Display grouped dice
     Object.keys(groupedDice).sort().forEach(dieValue => {
         const diceGroup = groupedDice[dieValue];
         const count = diceGroup.length;
@@ -887,7 +882,6 @@ function updateDicePoolPanel() {
             font-size: 15px;
         `;
         
-        // Use dice icon instead of text
         const diceIcon = createDiceIcon(dieValue);
         span.innerHTML = count > 1 ? `${diceIcon} × ${count}` : diceIcon;
         
@@ -906,7 +900,6 @@ function updateDicePoolPanel() {
             margin-left: auto;
         `;
         removeBtn.addEventListener("click", () => {
-            // Remove one die of this type
             const indexToRemove = diceGroup[0].index;
             dicePool.splice(indexToRemove, 1);
             if (dicePool.length === 0) {
@@ -922,7 +915,6 @@ function updateDicePoolPanel() {
         dicePoolPanel.appendChild(wrapper);
     });
 
-    // Add buttons container
     const btnContainer = document.createElement("div");
     btnContainer.style.cssText = "margin-top: 15px; display: flex; gap: 8px;";
     
@@ -961,9 +953,7 @@ function updateDicePoolPanel() {
     dicePoolPanel.appendChild(btnContainer);
 }
 
-// Helper function to create dice icon HTML matching the <c> tag style
 function createDiceIcon(dieValue) {
-    // Extract the number from d4, d6, d8, d10, d12
     let number;
     switch(dieValue) {
         case 'd4': number = '4'; break;
@@ -974,20 +964,16 @@ function createDiceIcon(dieValue) {
         default: number = dieValue.replace('d', '');
     }
     
-    // Return HTML that mimics the <c> tag styling
     return `<c style="display: inline-block;">${number}</c>`;
 }
 
-// Roll the selected dice - CORTEX PRIME STYLE
 function rollDicePool() {
     if (dicePool.length === 0) {
         alert("Add some dice to the pool first!");
         return;
     }
 
-    // Roll ALL dice in the pool
     const results = dicePool.map(d => {
-        // Re-read die value one more time before rolling
         const currentValue = getDieFromHeader(d.header) || d.value;
         let size = parseInt(currentValue.replace("d", ""));
         
@@ -997,17 +983,14 @@ function rollDicePool() {
             die: currentValue, 
             roll: roll,
             size: size,
-            id: Math.random() // unique ID for selection
+            id: Math.random()
         };
     });
 
-    // Show results in a selection panel
     showRollResultsPanel(results);
 }
 
-// Show roll results and let user pick total dice and effect die
 function showRollResultsPanel(results) {
-    // Remove old panel if exists
     const oldPanel = document.getElementById("roll-results-panel");
     if (oldPanel) oldPanel.remove();
 
@@ -1032,11 +1015,10 @@ function showRollResultsPanel(results) {
     let selectedTotal = [];
     let selectedEffect = null;
 
-    // Separate hitches from selectable dice
     const hitches = results.filter(r => r.roll === 1);
     const selectableDice = results.filter(r => r.roll !== 1);
     
-    // Auto-fill if less than 3 selectable dice - d4 is ONLY for effect, never shown in list
+    // FIX #1: Auto-fill and auto-select when less than 3 dice
     let autoD4 = null;
     if (selectableDice.length < 3) {
         autoD4 = {
@@ -1047,17 +1029,15 @@ function showRollResultsPanel(results) {
             id: 'auto-d4',
             isAutoD4: true
         };
-        // Auto-select the d4 as effect immediately
         selectedEffect = 'auto-d4';
+        selectedTotal = selectableDice.map(d => d.id);
     }
 
-    // Title
     const title = document.createElement("div");
     title.innerHTML = "<strong style='font-size: 18px;'>🎲 Roll Results - Select Dice</strong>";
     title.style.marginBottom = "15px";
     panel.appendChild(title);
 
-    // Instructions
     const instructions = document.createElement("div");
     instructions.style.cssText = "color: #666; margin-bottom: 15px; font-size: 13px; line-height: 1.4;";
     if (autoD4) {
@@ -1067,7 +1047,6 @@ function showRollResultsPanel(results) {
     }
     panel.appendChild(instructions);
 
-    // Auto-select buttons (only show if no auto-d4)
     if (!autoD4) {
         const autoButtonsDiv = document.createElement("div");
         autoButtonsDiv.style.cssText = "display: flex; gap: 8px; margin-bottom: 15px;";
@@ -1086,7 +1065,6 @@ function showRollResultsPanel(results) {
             font-weight: bold;
         `;
         maxTotalBtn.addEventListener("click", () => {
-            // Sort by roll value descending
             const sorted = [...selectableDice].sort((a, b) => b.roll - a.roll);
             selectedTotal = [sorted[0].id, sorted[1].id];
             selectedEffect = sorted[2] ? sorted[2].id : null;
@@ -1107,16 +1085,9 @@ function showRollResultsPanel(results) {
             font-weight: bold;
         `;
         maxEffectBtn.addEventListener("click", () => {
-            // Find the largest die size among selectable dice only (not auto-d4)
             const maxSize = Math.max(...selectableDice.map(d => d.size));
-            
-            // Get all dice with that size
             const maxSizeDice = selectableDice.filter(d => d.size === maxSize);
-            
-            // Among dice with max size, choose the one with LOWEST roll (to maximize total)
             const effectDie = maxSizeDice.sort((a, b) => a.roll - b.roll)[0];
-            
-            // For total, get the remaining dice and pick the 2 highest rolls
             const remainingDice = selectableDice.filter(d => d.id !== effectDie.id);
             const totalDice = remainingDice.sort((a, b) => b.roll - a.roll).slice(0, 2);
             
@@ -1130,14 +1101,12 @@ function showRollResultsPanel(results) {
         panel.appendChild(autoButtonsDiv);
     }
 
-    // Results container
     const resultsContainer = document.createElement("div");
     resultsContainer.style.marginBottom = "15px";
 
     function updateResultsDisplay() {
         resultsContainer.innerHTML = "";
         
-        // Show selectable dice first
         selectableDice.forEach(result => {
             const resultDiv = document.createElement("div");
             const isTotal = selectedTotal.includes(result.id);
@@ -1149,7 +1118,7 @@ function showRollResultsPanel(results) {
             let label = "";
             
             if (isTotal) {
-                bgColor = "#90C490"; // Greenish color from background
+                bgColor = "#90C490";
                 borderColor = "#90C490";
                 textColor = "#000";
                 label = " 📊";
@@ -1183,24 +1152,19 @@ function showRollResultsPanel(results) {
             `;
             
             resultDiv.addEventListener("click", () => {
-                // If clicking an already selected die, deselect it
                 if (isTotal) {
                     selectedTotal = selectedTotal.filter(id => id !== result.id);
                 } else if (isEffect) {
                     selectedEffect = null;
                 } else {
-                    // Check if this is the effect-only d4
                     if (result.isEffectOnly) {
-                        // Can only be effect
                         selectedEffect = result.id;
                     } else {
-                        // Try to select this die for total or effect
                         if (selectedTotal.length < 2) {
                             selectedTotal.push(result.id);
                         } else if (selectedEffect === null) {
                             selectedEffect = result.id;
                         } else {
-                            // Everything is selected, replace the effect die
                             selectedEffect = result.id;
                         }
                     }
@@ -1211,7 +1175,6 @@ function showRollResultsPanel(results) {
             resultsContainer.appendChild(resultDiv);
         });
         
-        // Show auto-d4 if present (effect only)
         if (autoD4) {
             const d4Div = document.createElement("div");
             const isEffect = selectedEffect === autoD4.id;
@@ -1253,7 +1216,6 @@ function showRollResultsPanel(results) {
             resultsContainer.appendChild(d4Div);
         }
         
-        // Show hitches separately (non-selectable)
         if (hitches.length > 0) {
             const hitchHeader = document.createElement("div");
             hitchHeader.style.cssText = "margin-top: 15px; margin-bottom: 5px; font-weight: bold; color: #666; font-size: 13px;";
@@ -1283,7 +1245,6 @@ function showRollResultsPanel(results) {
     updateResultsDisplay();
     panel.appendChild(resultsContainer);
 
-    // Summary section
     const summaryDiv = document.createElement("div");
     summaryDiv.id = "roll-summary";
     summaryDiv.style.cssText = `
@@ -1323,7 +1284,6 @@ function showRollResultsPanel(results) {
         summaryDiv.innerHTML = summaryHTML;
     }
 
-    // Update summary when selections change
     const originalUpdate = updateResultsDisplay;
     updateResultsDisplay = function() {
         originalUpdate();
@@ -1331,7 +1291,6 @@ function showRollResultsPanel(results) {
     };
     updateSummary();
 
-    // Buttons
     const btnContainer = document.createElement("div");
     btnContainer.style.cssText = "display: flex; gap: 10px;";
     
@@ -1354,7 +1313,6 @@ function showRollResultsPanel(results) {
             return;
         }
         
-        // Save to history before closing
         const totalDice = selectableDice.filter(r => selectedTotal.includes(r.id));
         let effectDie = selectableDice.find(r => selectedEffect === r.id);
         if (!effectDie && autoD4 && selectedEffect === autoD4.id) {
@@ -1371,11 +1329,10 @@ function showRollResultsPanel(results) {
             hitches: hitches
         };
         
-        rollHistory.unshift(historyEntry); // Add to beginning
-        if (rollHistory.length > 20) rollHistory.pop(); // Keep last 20 rolls
+        rollHistory.unshift(historyEntry);
+        if (rollHistory.length > 20) rollHistory.pop();
         
         panel.remove();
-        // Clear the dice pool
         dicePool = [];
         if (dicePoolPanel) {
             dicePoolPanel.remove();
@@ -1406,47 +1363,7 @@ function showRollResultsPanel(results) {
     document.body.appendChild(panel);
 }
 
-// Initialize the dice system
-let diceSystemInitialized = false;
-
-function initializeDiceSystem() {
-    if (diceSystemInitialized) {
-        console.log("Dice system already initialized");
-        return;
-    }
-    diceSystemInitialized = true;
-    
-    console.log("Initializing dice pool system...");
-    
-    // Wait for DOM to be fully ready
-    setTimeout(() => {
-        scanExistingHeaders();
-        observeNewHeaders();
-        console.log("Dice system initialized successfully");
-    }, 500);
-}
-
-// Hook into window load
-const originalWindowOnload = window.onload;
-window.onload = function() {
-    // Call original onload
-    if (originalWindowOnload) {
-        originalWindowOnload();
-    }
-    
-    // Initialize dice system
-    initializeDiceSystem();
-};
-
-// Manual rescan function for debugging
-window.rescanDiceHeaders = function() {
-    console.log("Manual rescan triggered");
-    scanExistingHeaders();
-};
-
-// Show roll history panel
 function showRollHistory() {
-    // Remove old panel if exists
     const oldPanel = document.getElementById("roll-history-panel");
     if (oldPanel) oldPanel.remove();
 
@@ -1469,7 +1386,6 @@ function showRollHistory() {
         font-family: sans-serif;
     `;
 
-    // Title
     const title = document.createElement("div");
     title.innerHTML = "<strong style='font-size: 18px;'>📜 Roll History</strong>";
     title.style.marginBottom = "15px";
@@ -1491,14 +1407,12 @@ function showRollHistory() {
                 background: #f9f9f9;
             `;
 
-            // Timestamp
             const timeDiv = document.createElement("div");
             timeDiv.style.cssText = "color: #666; font-size: 12px; margin-bottom: 8px;";
             const time = entry.timestamp;
             timeDiv.textContent = `${time.toLocaleTimeString()}`;
             entryDiv.appendChild(timeDiv);
 
-            // All rolled dice
             const allDiceDiv = document.createElement("div");
             allDiceDiv.style.cssText = "margin-bottom: 8px; font-size: 13px;";
             const diceList = entry.allResults.map(r => {
@@ -1508,7 +1422,6 @@ function showRollHistory() {
             allDiceDiv.innerHTML = `<strong>Rolled:</strong> ${diceList}`;
             entryDiv.appendChild(allDiceDiv);
 
-            // Total
             if (entry.totalDice.length > 0) {
                 const totalDiv = document.createElement("div");
                 totalDiv.style.cssText = "margin-bottom: 4px; font-size: 14px;";
@@ -1517,7 +1430,6 @@ function showRollHistory() {
                 entryDiv.appendChild(totalDiv);
             }
 
-            // Effect
             if (entry.effectDie) {
                 const effectDiv = document.createElement("div");
                 effectDiv.style.cssText = "margin-bottom: 4px; font-size: 14px;";
@@ -1526,7 +1438,6 @@ function showRollHistory() {
                 entryDiv.appendChild(effectDiv);
             }
 
-            // Hitches
             if (entry.hitches.length > 0) {
                 const hitchDiv = document.createElement("div");
                 hitchDiv.style.cssText = "font-size: 13px; color: #856404;";
@@ -1539,7 +1450,6 @@ function showRollHistory() {
         });
     }
 
-    // Close button
     const closeBtn = document.createElement("button");
     closeBtn.textContent = "Close";
     closeBtn.style.cssText = `
@@ -1556,7 +1466,6 @@ function showRollHistory() {
     closeBtn.addEventListener("click", () => panel.remove());
     panel.appendChild(closeBtn);
 
-    // Clear history button
     if (rollHistory.length > 0) {
         const clearBtn = document.createElement("button");
         clearBtn.textContent = "Clear History";
@@ -1582,11 +1491,41 @@ function showRollHistory() {
     document.body.appendChild(panel);
 }
 
-// Add roll history button to the page (you can call this on page load)
-window.addEventListener("load", function() {
-    // Wait a bit for the page to fully load
+let diceSystemInitialized = false;
+
+function initializeDiceSystem() {
+    if (diceSystemInitialized) {
+        console.log("Dice system already initialized");
+        return;
+    }
+    diceSystemInitialized = true;
+    
+    console.log("Initializing dice pool system...");
+    
     setTimeout(() => {
-        // Create a floating button that's always visible
+        scanExistingHeaders();
+        observeNewHeaders();
+        console.log("Dice system initialized successfully");
+    }, 500);
+}
+
+const originalWindowOnload = window.onload;
+window.onload = function() {
+    if (originalWindowOnload) {
+        originalWindowOnload();
+    }
+    
+    initializeDiceSystem();
+};
+
+window.rescanDiceHeaders = function() {
+    console.log("Manual rescan triggered");
+    scanExistingHeaders();
+};
+
+// FIX #1: Move history button to bottom-left to avoid overlap
+window.addEventListener("load", function() {
+    setTimeout(() => {
         const historyBtn = document.createElement("button");
         historyBtn.id = "roll-history-btn";
         historyBtn.innerHTML = "📜";
@@ -1594,8 +1533,7 @@ window.addEventListener("load", function() {
         historyBtn.style.cssText = `
             position: fixed;
             left: 10px;
-            top: 50%;
-            transform: translateY(-50%);
+            bottom: 20px;
             background: #C50852;
             color: white;
             border: none;
@@ -1614,5 +1552,528 @@ window.addEventListener("load", function() {
     }, 1000);
 });
 
-// Also expose globally so it can be called manually
 window.showRollHistory = showRollHistory;
+
+// ============================================================================
+// CHARACTER SHEET MANAGER SYSTEM
+// Add this entire code to the END of your main JavaScript file
+// ============================================================================
+
+let characterSheets = [];
+let currentSheetIndex = 0;
+let characterManagerPanel = null;
+
+// Initialize the character manager
+function initializeCharacterManager() {
+    console.log("Initializing character sheet manager...");
+    
+    // Check if we have default sheet from page
+    if (characterSheets.length === 0) {
+        const currentData = captureCurrentSheet();
+        characterSheets.push({
+            id: generateSheetId(),
+            name: currentData.name || "Character 1",
+            data: currentData,
+            lastModified: new Date().toISOString()
+        });
+    }
+    
+    createCharacterManagerPanel();
+    updateCharacterList();
+}
+
+// Generate unique ID for sheets
+function generateSheetId() {
+    return 'sheet_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+}
+
+// Capture current sheet data
+function captureCurrentSheet() {
+    const file = {};
+    const data = {};
+    file.version = 2;
+    
+    const inputs = document.querySelectorAll('input, textarea, img, div[contenteditable], h2[contenteditable], c[contenteditable], span[contenteditable]');
+    
+    for (let i = 0; i < inputs.length; i++) {
+        const input = inputs[i];
+        if (input.classList.contains('non-serialized') || 
+            input.classList.contains('no-print') || 
+            input.classList.contains('template')) {
+            continue;
+        }
+        
+        const non_serialized_parent = get_parent_with_class(input.parentElement, "non-serialized") || 
+                                      get_parent_with_class(input.parentElement, "no-print") || 
+                                      get_parent_with_class(input.parentElement, "template");
+        if (non_serialized_parent) {
+            continue;
+        }
+        
+        let id = input.id;
+        const spell_parent = get_parent_with_class(input.parentElement, "spell");
+        
+        if (spell_parent && spell_parent.classList.contains("template")) {
+            continue;
+        }
+        
+        if (spell_parent !== null) {
+            id = path_to(input.parentElement, "spells") + "/" + input.id;
+        } else if (input.parentElement.id == "talent" || 
+                   input.parentElement.id == "weapon" || 
+                   input.parentElement.id == "ability" || 
+                   input.parentElement.id == "critical-injury") {
+            id = input.parentElement.parentElement.id + "/" + 
+                 Array.prototype.indexOf.call(input.parentElement.parentElement.children, input.parentElement) + "/" + 
+                 input.id;
+        }
+        
+        if (input.id === '') {
+            let elem = input;
+            let path = '';
+            while (id === '' && elem.parentElement != null) {
+                id = elem.parentElement.id;
+                path = Array.prototype.indexOf.call(elem.parentElement.children, elem) + "/" + path;
+                elem = elem.parentElement;
+            }
+            id = id + "/" + path.slice(0, -1);
+        }
+        
+        if (input.getAttribute("type") == "checkbox") {
+            data[id] = input.checked;
+        } else if (input.tagName == "IMG") {
+            data[id] = input.src;
+        } else if (input.tagName == "DIV" || input.tagName == "H2" || input.tagName == "C" || input.tagName == "SPAN") {
+            data[id] = html_to_text(input.innerHTML);
+        } else {
+            data[id] = input.value;
+        }
+        
+        if (input.getAttribute("data-x") !== null) {
+            data[id] = { value: data[id] };
+            data[id].x = input.getAttribute("data-x");
+            data[id].y = input.getAttribute("data-y");
+            data[id].zoom = input.getAttribute("data-zoom");
+        }
+        
+        if (input.getAttribute("data-style") !== null) {
+            data[id] = { value: data[id] };
+            data[id].style = input.getAttribute("data-style");
+        }
+    }
+    
+    file.data = data;
+    
+    // Get character name
+    const characterNameElem = document.getElementById("character-name");
+    file.name = characterNameElem ? characterNameElem.innerText.trim() : "Unnamed Character";
+    
+    return file;
+}
+
+// Update current sheet with latest data
+function updateCurrentSheet() {
+    const currentData = captureCurrentSheet();
+    characterSheets[currentSheetIndex].data = currentData;
+    characterSheets[currentSheetIndex].name = currentData.name || "Unnamed Character";
+    characterSheets[currentSheetIndex].lastModified = new Date().toISOString();
+    updateCharacterList();
+}
+
+// Load a specific sheet
+function loadSheet(index) {
+    if (index < 0 || index >= characterSheets.length) {
+        console.error("Invalid sheet index:", index);
+        return;
+    }
+    
+    // Save current sheet before switching
+    if (currentSheetIndex !== index) {
+        updateCurrentSheet();
+    }
+    
+    currentSheetIndex = index;
+    const sheet = characterSheets[index];
+    
+    console.log(`Loading sheet: ${sheet.name}`);
+    
+    // Load the character data
+    load_character(sheet.data);
+    
+    updateCharacterList();
+}
+
+// Create the character manager panel
+function createCharacterManagerPanel() {
+    if (characterManagerPanel) return;
+    
+    characterManagerPanel = document.createElement("div");
+    characterManagerPanel.id = "character-manager-panel";
+    characterManagerPanel.style.cssText = `
+        position: fixed;
+        left: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        background: #fff;
+        border: 2px solid #C50852;
+        border-radius: 8px;
+        padding: 12px;
+        z-index: 9998;
+        width: 250px;
+        max-height: 80vh;
+        overflow-y: auto;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+        font-family: sans-serif;
+        font-size: 13px;
+    `;
+    
+    // Header
+    const header = document.createElement("div");
+    header.style.cssText = "font-weight: bold; margin-bottom: 10px; font-size: 15px; color: #C50852;";
+    header.innerHTML = "📋 Character Sheets";
+    characterManagerPanel.appendChild(header);
+    
+    // Character list container
+    const listContainer = document.createElement("div");
+    listContainer.id = "character-list";
+    listContainer.style.marginBottom = "10px";
+    characterManagerPanel.appendChild(listContainer);
+    
+    // Add new character button
+    const addBtn = document.createElement("button");
+    addBtn.textContent = "+ New Character";
+    addBtn.style.cssText = `
+        width: 100%;
+        background: #28a745;
+        color: white;
+        border: none;
+        padding: 8px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: bold;
+        margin-bottom: 8px;
+    `;
+    addBtn.addEventListener("click", createNewCharacter);
+    characterManagerPanel.appendChild(addBtn);
+    
+    // Export/Import buttons
+    const exportBtn = document.createElement("button");
+    exportBtn.textContent = "💾 Export All";
+    exportBtn.style.cssText = `
+        width: 100%;
+        background: #007bff;
+        color: white;
+        border: none;
+        padding: 8px;
+        border-radius: 4px;
+        cursor: pointer;
+        margin-bottom: 5px;
+    `;
+    exportBtn.addEventListener("click", exportAllCharacters);
+    characterManagerPanel.appendChild(exportBtn);
+    
+    const importBtn = document.createElement("button");
+    importBtn.textContent = "📂 Import";
+    importBtn.style.cssText = `
+        width: 100%;
+        background: #6c757d;
+        color: white;
+        border: none;
+        padding: 8px;
+        border-radius: 4px;
+        cursor: pointer;
+    `;
+    importBtn.addEventListener("click", importCharacters);
+    characterManagerPanel.appendChild(importBtn);
+    
+    // Minimize button
+    const minimizeBtn = document.createElement("button");
+    minimizeBtn.textContent = "◄";
+    minimizeBtn.title = "Minimize";
+    minimizeBtn.style.cssText = `
+        position: absolute;
+        top: 5px;
+        right: 5px;
+        background: #ddd;
+        border: none;
+        width: 24px;
+        height: 24px;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 12px;
+    `;
+    minimizeBtn.addEventListener("click", toggleCharacterManager);
+    characterManagerPanel.appendChild(minimizeBtn);
+    
+    document.body.appendChild(characterManagerPanel);
+    updateCharacterList();
+}
+
+// Update the character list display
+function updateCharacterList() {
+    const listContainer = document.getElementById("character-list");
+    if (!listContainer) return;
+    
+    listContainer.innerHTML = "";
+    
+    characterSheets.forEach((sheet, index) => {
+        const sheetDiv = document.createElement("div");
+        const isActive = index === currentSheetIndex;
+        
+        sheetDiv.style.cssText = `
+            padding: 10px;
+            margin: 5px 0;
+            border: 2px solid ${isActive ? '#C50852' : '#ddd'};
+            background: ${isActive ? '#fff0f5' : '#f9f9f9'};
+            border-radius: 4px;
+            cursor: pointer;
+            position: relative;
+            transition: all 0.2s;
+        `;
+        
+        sheetDiv.innerHTML = `
+            <div style="font-weight: bold; margin-bottom: 3px;">${sheet.name || 'Unnamed'}</div>
+            <div style="font-size: 11px; color: #666;">
+                Modified: ${new Date(sheet.lastModified).toLocaleDateString()}
+            </div>
+        `;
+        
+        // Click to switch
+        sheetDiv.addEventListener("click", () => {
+            if (index !== currentSheetIndex) {
+                loadSheet(index);
+            }
+        });
+        
+        // Delete button
+        if (characterSheets.length > 1) {
+            const deleteBtn = document.createElement("button");
+            deleteBtn.textContent = "×";
+            deleteBtn.style.cssText = `
+                position: absolute;
+                top: 5px;
+                right: 5px;
+                background: #ff4444;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                width: 20px;
+                height: 20px;
+                cursor: pointer;
+                font-size: 16px;
+                line-height: 1;
+            `;
+            deleteBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                deleteCharacter(index);
+            });
+            sheetDiv.appendChild(deleteBtn);
+        }
+        
+        listContainer.appendChild(sheetDiv);
+    });
+}
+
+// Create a new character
+function createNewCharacter() {
+    // Save current sheet first
+    updateCurrentSheet();
+    
+    const newSheet = {
+        id: generateSheetId(),
+        name: `Character ${characterSheets.length + 1}`,
+        data: { version: 2, data: {}, name: `Character ${characterSheets.length + 1}` },
+        lastModified: new Date().toISOString()
+    };
+    
+    characterSheets.push(newSheet);
+    currentSheetIndex = characterSheets.length - 1;
+    
+    // Clear the page but keep structure
+    clearAllFields();
+    
+    // Set the character name
+    const nameElem = document.getElementById("character-name");
+    if (nameElem) {
+        nameElem.innerText = newSheet.name;
+    }
+    
+    updateCharacterList();
+}
+
+// Clear all fields on the page (but preserve templates) - FIX #3
+function clearAllFields() {
+    // Simply reload the page's default state by loading an empty character
+    // This preserves the original HTML structure
+    load_character({ version: 2, data: {}, name: "" });
+    
+    // Clear character name
+    const nameElem = document.getElementById("character-name");
+    if (nameElem) {
+        nameElem.innerHTML = "";
+    }
+    
+    // Trigger attribute position update if attributes exist
+    if (typeof update_attribute_positions === 'function') {
+        update_attribute_positions();
+    }
+    
+    // Rescan for dice icons
+    if (typeof scanExistingHeaders === 'function') {
+        setTimeout(() => scanExistingHeaders(), 100);
+    }
+}
+
+// Delete a character
+function deleteCharacter(index) {
+    if (characterSheets.length <= 1) {
+        alert("Cannot delete the last character sheet!");
+        return;
+    }
+    
+    const sheet = characterSheets[index];
+    if (!confirm(`Delete character "${sheet.name}"?`)) {
+        return;
+    }
+    
+    characterSheets.splice(index, 1);
+    
+    // Adjust current index
+    if (currentSheetIndex >= characterSheets.length) {
+        currentSheetIndex = characterSheets.length - 1;
+    } else if (index < currentSheetIndex) {
+        currentSheetIndex--;
+    }
+    
+    loadSheet(currentSheetIndex);
+}
+
+// Export all characters to a single JSON file
+function exportAllCharacters() {
+    updateCurrentSheet(); // Save current before export
+    
+    const exportData = {
+        version: 2,
+        exportDate: new Date().toISOString(),
+        sheets: characterSheets
+    };
+    
+    const uri = encodeURI("data:application/json;charset=utf-8," + JSON.stringify(exportData, null, 2));
+    const link = document.createElement("a");
+    link.setAttribute("href", uri);
+    link.setAttribute("download", `cortex_characters_${Date.now()}.json`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+}
+
+// Import characters from a JSON file
+function importCharacters() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json";
+    
+    input.addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        const reader = new FileReader();
+        reader.addEventListener("loadend", () => {
+            try {
+                const importData = JSON.parse(reader.result);
+                
+                // Check if it's a multi-character export or single character
+                if (importData.sheets && Array.isArray(importData.sheets)) {
+                    // Multi-character import
+                    if (confirm(`Import ${importData.sheets.length} character(s)? This will add to your existing characters.`)) {
+                        importData.sheets.forEach(sheet => {
+                            sheet.id = generateSheetId(); // Generate new IDs to avoid conflicts
+                            characterSheets.push(sheet);
+                        });
+                        updateCharacterList();
+                        alert(`Successfully imported ${importData.sheets.length} character(s)!`);
+                    }
+                } else {
+                    // Single character import (old format)
+                    const newSheet = {
+                        id: generateSheetId(),
+                        name: importData.name || "Imported Character",
+                        data: importData,
+                        lastModified: new Date().toISOString()
+                    };
+                    
+                    if (confirm(`Import character "${newSheet.name}"?`)) {
+                        characterSheets.push(newSheet);
+                        currentSheetIndex = characterSheets.length - 1;
+                        loadSheet(currentSheetIndex);
+                        alert("Character imported successfully!");
+                    }
+                }
+            } catch (err) {
+                alert("Error importing file: " + err.message);
+                console.error("Import error:", err);
+            }
+        });
+        reader.readAsText(file);
+    });
+    
+    input.click();
+}
+
+// Toggle character manager visibility
+function toggleCharacterManager() {
+    if (!characterManagerPanel) return;
+    
+    const isMinimized = characterManagerPanel.style.width === '40px';
+    
+    if (isMinimized) {
+        // Expand
+        characterManagerPanel.style.width = '250px';
+        characterManagerPanel.querySelector('#character-list').style.display = 'block';
+        characterManagerPanel.querySelectorAll('button').forEach(btn => {
+            if (btn.textContent !== '◄') {
+                btn.style.display = 'block';
+            }
+        });
+        characterManagerPanel.querySelector('div').style.display = 'block';
+        characterManagerPanel.querySelector('button[title="Minimize"]').textContent = '◄';
+    } else {
+        // Minimize
+        characterManagerPanel.style.width = '40px';
+        characterManagerPanel.querySelector('#character-list').style.display = 'none';
+        characterManagerPanel.querySelectorAll('button').forEach(btn => {
+            if (btn.textContent !== '◄') {
+                btn.style.display = 'none';
+            }
+        });
+        characterManagerPanel.querySelector('div').style.display = 'none';
+        characterManagerPanel.querySelector('button[title="Minimize"]').textContent = '►';
+    }
+}
+
+// Auto-save current sheet periodically
+setInterval(() => {
+    if (characterSheets.length > 0) {
+        updateCurrentSheet();
+    }
+}, 30000); // Auto-save every 30 seconds
+
+// Initialize on page load
+window.addEventListener("load", function() {
+    setTimeout(() => {
+        initializeCharacterManager();
+        console.log("Character manager initialized!");
+    }, 1500);
+});
+
+// Expose functions globally for debugging
+window.characterManager = {
+    updateCurrentSheet,
+    loadSheet,
+    createNewCharacter,
+    deleteCharacter,
+    exportAllCharacters,
+    importCharacters,
+    getSheets: () => characterSheets,
+    getCurrentIndex: () => currentSheetIndex
+};
