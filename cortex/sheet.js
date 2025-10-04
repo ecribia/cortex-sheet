@@ -688,10 +688,17 @@ function getDieFromCValue(cValue) {
 
 // Get die value from header at the moment of clicking
 function getDieFromHeader(header) {
+    // Check if this is part of an attribute (header is actually the nameDiv in attributes)
+    const parentAttribute = header.closest('.attribute');
+    if (parentAttribute) {
+        return getDieFromAttribute(parentAttribute);
+    }
+    
+    // Otherwise it's a regular h2 header with <c> inside
     let cTag = header.querySelector('c');
     
     if (!cTag) {
-        console.log("No <c> tag found inside this header");
+        console.log("No <c> tag found for this header");
         return null;
     }
     
@@ -752,14 +759,15 @@ function scanExistingHeaders() {
     
     document.querySelectorAll(".dice-icon").forEach(icon => icon.remove());
     
-    const selectors = [
+    let headersFound = 0;
+    
+    // Handle trait-groups and traits (h2 with <c> inside)
+    const h2Selectors = [
         ".trait-group h2:not(.template h2)",
-        ".attribute h2:not(.template h2)",
         ".trait h2:not(.template h2)"
     ];
     
-    let headersFound = 0;
-    selectors.forEach(selector => {
+    h2Selectors.forEach(selector => {
         const headers = document.querySelectorAll(selector);
         console.log(`Selector "${selector}" found ${headers.length} headers`);
         
@@ -771,7 +779,78 @@ function scanExistingHeaders() {
         });
     });
     
+    // Handle attributes (different structure: <c> and <div> are siblings)
+    const attributes = document.querySelectorAll('.attribute:not(.template)');
+    console.log(`Found ${attributes.length} attributes`);
+    
+    attributes.forEach(attr => {
+        const cTag = attr.querySelector('c');
+        const nameDiv = attr.querySelector('div[contenteditable]');
+        
+        if (cTag && nameDiv) {
+            attachDiceIconToAttribute(attr, nameDiv);
+            headersFound++;
+        }
+    });
+    
     console.log(`Total headers with dice icons: ${headersFound}`);
+}
+
+// Attach dice icon specifically for attributes
+function attachDiceIconToAttribute(attributeElement, nameDiv) {
+    const existingIcon = nameDiv.querySelector(".dice-icon");
+    if (existingIcon) {
+        existingIcon.remove();
+    }
+
+    const icon = document.createElement("span");
+    icon.classList.add("dice-icon");
+    icon.innerText = "🎲";
+    icon.style.cursor = "pointer";
+    icon.style.marginLeft = "5px";
+    icon.style.display = "inline-block";
+    icon.style.userSelect = "none";
+
+    icon.addEventListener("click", (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        
+        const dieValue = getDieFromAttribute(attributeElement);
+        console.log("Dice icon clicked for attribute, Die:", dieValue);
+        
+        if (!dieValue) {
+            console.warn("No die value found for this attribute");
+            return;
+        }
+
+        dicePool.push({ 
+            header: nameDiv, 
+            attributeElement: attributeElement,
+            value: dieValue, 
+            selected: false,
+            isAttribute: true
+        });
+        
+        if (!dicePoolPanel) createDicePoolPanel();
+        updateDicePoolPanel();
+    });
+
+    nameDiv.appendChild(icon);
+}
+
+// Get die value from attribute element
+function getDieFromAttribute(attributeElement) {
+    const cTag = attributeElement.querySelector('c');
+    
+    if (!cTag) {
+        console.log("No <c> tag found in attribute");
+        return null;
+    }
+    
+    const cValue = cTag.innerText || cTag.textContent;
+    const dieValue = getDieFromCValue(cValue);
+    console.log("Found die value:", dieValue, "from attribute <c> tag:", cValue);
+    return dieValue;
 }
 
 // Observe for dynamically added content
@@ -852,7 +931,13 @@ function updateDicePoolPanel() {
 
     const groupedDice = {};
     dicePool.forEach((die, index) => {
-        const currentDieValue = getDieFromHeader(die.header);
+        // Re-read die value based on whether it's an attribute or regular header
+        let currentDieValue;
+        if (die.isAttribute && die.attributeElement) {
+            currentDieValue = getDieFromAttribute(die.attributeElement);
+        } else {
+            currentDieValue = getDieFromHeader(die.header);
+        }
         const dieKey = currentDieValue || die.value;
         
         if (!groupedDice[dieKey]) {
@@ -974,12 +1059,32 @@ function rollDicePool() {
     }
 
     const results = dicePool.map(d => {
-        const currentValue = getDieFromHeader(d.header) || d.value;
-        let size = parseInt(currentValue.replace("d", ""));
+        // Get the current die value based on type
+        let currentValue;
+        if (d.isAttribute && d.attributeElement) {
+            currentValue = getDieFromAttribute(d.attributeElement);
+        } else {
+            currentValue = getDieFromHeader(d.header);
+        }
+        currentValue = currentValue || d.value;
         
+        let size = parseInt(currentValue.replace("d", ""));
         const roll = Math.floor(Math.random() * size) + 1;
+        
+        // Get clean header text without HTML
+        let headerText;
+        if (d.isAttribute && d.header) {
+            // For attributes, clone the element and remove the dice icon before getting text
+            const tempDiv = d.header.cloneNode(true);
+            const icon = tempDiv.querySelector('.dice-icon');
+            if (icon) icon.remove();
+            headerText = tempDiv.textContent.trim();
+        } else {
+            headerText = d.header.innerText.trim();
+        }
+        
         return { 
-            header: d.header.innerText.trim(), 
+            header: headerText, 
             die: currentValue, 
             roll: roll,
             size: size,
@@ -1562,10 +1667,17 @@ window.showRollHistory = showRollHistory;
 let characterSheets = [];
 let currentSheetIndex = 0;
 let characterManagerPanel = null;
+let originalPageState = null; // Store the original template
 
 // Initialize the character manager
 function initializeCharacterManager() {
     console.log("Initializing character sheet manager...");
+    
+    // Capture the ORIGINAL page state as a template (do this ONCE on first load)
+    if (originalPageState === null) {
+        originalPageState = captureCurrentSheet();
+        console.log("Saved original page template");
+    }
     
     // Check if we have default sheet from page
     if (characterSheets.length === 0) {
@@ -1903,9 +2015,13 @@ function createNewCharacter() {
 
 // Clear all fields on the page (but preserve templates) - FIX #3
 function clearAllFields() {
-    // Simply reload the page's default state by loading an empty character
-    // This preserves the original HTML structure
-    load_character({ version: 2, data: {}, name: "" });
+    // Load the ORIGINAL page template that was saved on first load
+    if (originalPageState) {
+        load_character(originalPageState);
+    } else {
+        // Fallback: just clear everything
+        load_character({ version: 2, data: {}, name: "" });
+    }
     
     // Clear character name
     const nameElem = document.getElementById("character-name");
@@ -2058,7 +2174,17 @@ setInterval(() => {
     }
 }, 30000); // Auto-save every 30 seconds
 
-// Initialize on page load
+// Initialize on page load - CAPTURE TEMPLATE IMMEDIATELY
+window.addEventListener("DOMContentLoaded", function() {
+    // Capture original state RIGHT when DOM loads, before any user modifications
+    setTimeout(() => {
+        if (originalPageState === null) {
+            originalPageState = captureCurrentSheet();
+            console.log("Captured original page template at DOMContentLoaded");
+        }
+    }, 100);
+});
+
 window.addEventListener("load", function() {
     setTimeout(() => {
         initializeCharacterManager();
