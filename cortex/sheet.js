@@ -722,11 +722,20 @@ function attachDiceIcon(header) {
 
     const icon = document.createElement("span");
     icon.classList.add("dice-icon");
-    icon.innerText = "🎲";
+    // Use SVG instead of emoji for better aesthetics
+    icon.innerHTML = `<svg width="14" height="14" viewBox="0 0 20 20" style="vertical-align: middle;">
+        <rect x="2" y="2" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>
+        <circle cx="10" cy="10" r="1.5" fill="currentColor"/>
+        <circle cx="6" cy="6" r="1.5" fill="currentColor"/>
+        <circle cx="14" cy="6" r="1.5" fill="currentColor"/>
+        <circle cx="6" cy="14" r="1.5" fill="currentColor"/>
+        <circle cx="14" cy="14" r="1.5" fill="currentColor"/>
+    </svg>`;
     icon.style.cursor = "pointer";
     icon.style.marginLeft = "5px";
     icon.style.display = "inline-block";
     icon.style.userSelect = "none";
+    icon.style.color = "#C50852";
 
     icon.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -740,8 +749,16 @@ function attachDiceIcon(header) {
             return;
         }
 
+        // Get the name from the previous sibling h2 if it exists (for distinctions/traits)
+        let nameElement = header;
+        const prevSibling = header.previousElementSibling;
+        if (prevSibling && prevSibling.tagName === 'H2' && prevSibling.classList.contains('inline')) {
+            nameElement = prevSibling;
+        }
+
         dicePool.push({ 
-            header: header, 
+            header: header,
+            nameElement: nameElement,
             value: dieValue, 
             selected: false 
         });
@@ -805,11 +822,20 @@ function attachDiceIconToAttribute(attributeElement, nameDiv) {
 
     const icon = document.createElement("span");
     icon.classList.add("dice-icon");
-    icon.innerText = "🎲";
+    // Use SVG instead of emoji
+    icon.innerHTML = `<svg width="14" height="14" viewBox="0 0 20 20" style="vertical-align: middle;">
+        <rect x="2" y="2" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>
+        <circle cx="10" cy="10" r="1.5" fill="currentColor"/>
+        <circle cx="6" cy="6" r="1.5" fill="currentColor"/>
+        <circle cx="14" cy="6" r="1.5" fill="currentColor"/>
+        <circle cx="6" cy="14" r="1.5" fill="currentColor"/>
+        <circle cx="14" cy="14" r="1.5" fill="currentColor"/>
+    </svg>`;
     icon.style.cursor = "pointer";
     icon.style.marginLeft = "5px";
     icon.style.display = "inline-block";
     icon.style.userSelect = "none";
+    icon.style.color = "#C50852";
 
     icon.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -1079,8 +1105,18 @@ function rollDicePool() {
             const icon = tempDiv.querySelector('.dice-icon');
             if (icon) icon.remove();
             headerText = tempDiv.textContent.trim();
+        } else if (d.nameElement && d.nameElement !== d.header) {
+            // Use the name element (previous sibling h2) if it exists
+            headerText = d.nameElement.innerText.trim();
         } else {
-            headerText = d.header.innerText.trim();
+            // Fallback to the header itself
+            const tempHeader = d.header.cloneNode(true);
+            const icon = tempHeader.querySelector('.dice-icon');
+            if (icon) icon.remove();
+            // Also remove the <c> tag to get just the name
+            const cTag = tempHeader.querySelector('c');
+            if (cTag) cTag.remove();
+            headerText = tempHeader.textContent.trim();
         }
         
         return { 
@@ -1170,7 +1206,13 @@ function showRollResultsPanel(results) {
             font-weight: bold;
         `;
         maxTotalBtn.addEventListener("click", () => {
-            const sorted = [...selectableDice].sort((a, b) => b.roll - a.roll);
+            // Sort by roll value descending, then by die size ascending (smaller dice first when tied)
+            const sorted = [...selectableDice].sort((a, b) => {
+                if (b.roll !== a.roll) {
+                    return b.roll - a.roll; // Higher rolls first
+                }
+                return a.size - b.size; // If tied, smaller die first (better for effect)
+            });
             selectedTotal = [sorted[0].id, sorted[1].id];
             selectedEffect = sorted[2] ? sorted[2].id : null;
             updateResultsDisplay();
@@ -1437,6 +1479,11 @@ function showRollResultsPanel(results) {
         rollHistory.unshift(historyEntry);
         if (rollHistory.length > 20) rollHistory.pop();
         
+        // Post to Discord if enabled
+        if (typeof window.postRollToDiscord === 'function') {
+            window.postRollToDiscord(historyEntry);
+        }
+        
         panel.remove();
         dicePool = [];
         if (dicePoolPanel) {
@@ -1628,7 +1675,7 @@ window.rescanDiceHeaders = function() {
     scanExistingHeaders();
 };
 
-// FIX #1: Move history button to bottom-left to avoid overlap
+// FIX #1: Move history button below theme and discord buttons
 window.addEventListener("load", function() {
     setTimeout(() => {
         const historyBtn = document.createElement("button");
@@ -1637,8 +1684,8 @@ window.addEventListener("load", function() {
         historyBtn.title = "Roll History";
         historyBtn.style.cssText = `
             position: fixed;
-            left: 10px;
-            bottom: 20px;
+            right: 20px;
+            top: 140px;
             background: #C50852;
             color: white;
             border: none;
@@ -1660,546 +1707,877 @@ window.addEventListener("load", function() {
 window.showRollHistory = showRollHistory;
 
 // ============================================================================
-// CHARACTER SHEET MANAGER SYSTEM
-// Add this entire code to the END of your main JavaScript file
+// DISCORD WEBHOOK INTEGRATION
+// Add this to the END of your sheet.js file
 // ============================================================================
 
-let characterSheets = [];
-let currentSheetIndex = 0;
-let characterManagerPanel = null;
-let originalPageState = null; // Store the original template
+let discordWebhookUrl = null;
+let discordEnabled = false;
 
-// Initialize the character manager
-function initializeCharacterManager() {
-    console.log("Initializing character sheet manager...");
-    
-    // Capture the ORIGINAL page state as a template (do this ONCE on first load)
-    if (originalPageState === null) {
-        originalPageState = captureCurrentSheet();
-        console.log("Saved original page template");
+// Create Discord settings panel
+function createDiscordSettingsPanel() {
+    // Add button to toggle Discord settings
+    const discordBtn = document.createElement("button");
+    discordBtn.id = "discord-settings-btn";
+    discordBtn.innerHTML = "💬";
+    discordBtn.title = "Discord Settings";
+    discordBtn.style.cssText = `
+        position: fixed;
+        right: 20px;
+        top: 20px;
+        background: #5865F2;
+        color: white;
+        border: none;
+        width: 50px;
+        height: 50px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 24px;
+        z-index: 9999;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    `;
+    discordBtn.addEventListener("click", showDiscordSettings);
+    document.body.appendChild(discordBtn);
+}
+
+function showDiscordSettings() {
+    const existingPanel = document.getElementById("discord-settings-panel");
+    if (existingPanel) {
+        existingPanel.remove();
+        return;
     }
-    
-    // Check if we have default sheet from page
-    if (characterSheets.length === 0) {
-        const currentData = captureCurrentSheet();
-        characterSheets.push({
-            id: generateSheetId(),
-            name: currentData.name || "Character 1",
-            data: currentData,
-            lastModified: new Date().toISOString()
-        });
-    }
-    
-    createCharacterManagerPanel();
-    updateCharacterList();
+
+    const panel = document.createElement("div");
+    panel.id = "discord-settings-panel";
+    panel.style.cssText = `
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: white;
+        border: 3px solid #5865F2;
+        border-radius: 10px;
+        padding: 20px;
+        z-index: 10003;
+        width: 500px;
+        box-shadow: 0 8px 16px rgba(0,0,0,0.3);
+        font-family: sans-serif;
+    `;
+
+    panel.innerHTML = `
+        <div style="font-weight: bold; margin-bottom: 15px; font-size: 18px; color: #5865F2;">
+            💬 Discord Integration
+        </div>
+        
+        <div style="margin-bottom: 15px;">
+            <label style="display: block; margin-bottom: 5px; font-weight: bold;">
+                Discord Webhook URL:
+            </label>
+            <input type="text" id="discord-webhook-input" 
+                   placeholder="https://discord.com/api/webhooks/..."
+                   style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;"
+                   value="${discordWebhookUrl || ''}">
+            <div style="font-size: 12px; color: #666; margin-top: 5px;">
+                Get this from Discord: Server Settings → Integrations → Webhooks → New Webhook
+            </div>
+        </div>
+        
+        <div style="margin-bottom: 15px;">
+            <label style="display: flex; align-items: center; cursor: pointer;">
+                <input type="checkbox" id="discord-enabled-checkbox" ${discordEnabled ? 'checked' : ''}
+                       style="margin-right: 8px; width: 18px; height: 18px; cursor: pointer;">
+                <span style="font-weight: bold;">Enable Discord posting</span>
+            </label>
+        </div>
+        
+        <div style="background: #f0f0f0; padding: 12px; border-radius: 6px; margin-bottom: 15px; font-size: 13px;">
+            <strong>How to set up:</strong>
+            <ol style="margin: 8px 0; padding-left: 20px;">
+                <li>In Discord, go to your server settings</li>
+                <li>Click "Integrations" → "Webhooks"</li>
+                <li>Click "New Webhook" or edit existing one</li>
+                <li>Copy the webhook URL</li>
+                <li>Paste it above and enable</li>
+            </ol>
+        </div>
+        
+        <div style="display: flex; gap: 10px;">
+            <button id="discord-test-btn" style="
+                flex: 1;
+                background: #5865F2;
+                color: white;
+                border: none;
+                padding: 10px;
+                border-radius: 6px;
+                cursor: pointer;
+                font-weight: bold;
+            ">Test Connection</button>
+            
+            <button id="discord-save-btn" style="
+                flex: 1;
+                background: #28a745;
+                color: white;
+                border: none;
+                padding: 10px;
+                border-radius: 6px;
+                cursor: pointer;
+                font-weight: bold;
+            ">Save</button>
+            
+            <button id="discord-close-btn" style="
+                background: #666;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 6px;
+                cursor: pointer;
+            ">Close</button>
+        </div>
+    `;
+
+    document.body.appendChild(panel);
+
+    // Event listeners
+    document.getElementById("discord-test-btn").addEventListener("click", testDiscordConnection);
+    document.getElementById("discord-save-btn").addEventListener("click", saveDiscordSettings);
+    document.getElementById("discord-close-btn").addEventListener("click", () => panel.remove());
 }
 
-// Generate unique ID for sheets
-function generateSheetId() {
-    return 'sheet_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+function saveDiscordSettings() {
+    const webhookInput = document.getElementById("discord-webhook-input");
+    const enabledCheckbox = document.getElementById("discord-enabled-checkbox");
+    
+    discordWebhookUrl = webhookInput.value.trim();
+    discordEnabled = enabledCheckbox.checked;
+    
+    // Save to localStorage
+    localStorage.setItem('discord_webhook_url', discordWebhookUrl);
+    localStorage.setItem('discord_enabled', discordEnabled ? 'true' : 'false');
+    
+    alert("Discord settings saved!");
 }
 
-// Capture current sheet data
-function captureCurrentSheet() {
-    const file = {};
-    const data = {};
-    file.version = 2;
+function testDiscordConnection() {
+    const webhookInput = document.getElementById("discord-webhook-input");
+    const testUrl = webhookInput.value.trim();
     
-    const inputs = document.querySelectorAll('input, textarea, img, div[contenteditable], h2[contenteditable], c[contenteditable], span[contenteditable]');
-    
-    for (let i = 0; i < inputs.length; i++) {
-        const input = inputs[i];
-        if (input.classList.contains('non-serialized') || 
-            input.classList.contains('no-print') || 
-            input.classList.contains('template')) {
-            continue;
-        }
-        
-        const non_serialized_parent = get_parent_with_class(input.parentElement, "non-serialized") || 
-                                      get_parent_with_class(input.parentElement, "no-print") || 
-                                      get_parent_with_class(input.parentElement, "template");
-        if (non_serialized_parent) {
-            continue;
-        }
-        
-        let id = input.id;
-        const spell_parent = get_parent_with_class(input.parentElement, "spell");
-        
-        if (spell_parent && spell_parent.classList.contains("template")) {
-            continue;
-        }
-        
-        if (spell_parent !== null) {
-            id = path_to(input.parentElement, "spells") + "/" + input.id;
-        } else if (input.parentElement.id == "talent" || 
-                   input.parentElement.id == "weapon" || 
-                   input.parentElement.id == "ability" || 
-                   input.parentElement.id == "critical-injury") {
-            id = input.parentElement.parentElement.id + "/" + 
-                 Array.prototype.indexOf.call(input.parentElement.parentElement.children, input.parentElement) + "/" + 
-                 input.id;
-        }
-        
-        if (input.id === '') {
-            let elem = input;
-            let path = '';
-            while (id === '' && elem.parentElement != null) {
-                id = elem.parentElement.id;
-                path = Array.prototype.indexOf.call(elem.parentElement.children, elem) + "/" + path;
-                elem = elem.parentElement;
-            }
-            id = id + "/" + path.slice(0, -1);
-        }
-        
-        if (input.getAttribute("type") == "checkbox") {
-            data[id] = input.checked;
-        } else if (input.tagName == "IMG") {
-            data[id] = input.src;
-        } else if (input.tagName == "DIV" || input.tagName == "H2" || input.tagName == "C" || input.tagName == "SPAN") {
-            data[id] = html_to_text(input.innerHTML);
-        } else {
-            data[id] = input.value;
-        }
-        
-        if (input.getAttribute("data-x") !== null) {
-            data[id] = { value: data[id] };
-            data[id].x = input.getAttribute("data-x");
-            data[id].y = input.getAttribute("data-y");
-            data[id].zoom = input.getAttribute("data-zoom");
-        }
-        
-        if (input.getAttribute("data-style") !== null) {
-            data[id] = { value: data[id] };
-            data[id].style = input.getAttribute("data-style");
-        }
-    }
-    
-    file.data = data;
-    
-    // Get character name
-    const characterNameElem = document.getElementById("character-name");
-    file.name = characterNameElem ? characterNameElem.innerText.trim() : "Unnamed Character";
-    
-    return file;
-}
-
-// Update current sheet with latest data
-function updateCurrentSheet() {
-    const currentData = captureCurrentSheet();
-    characterSheets[currentSheetIndex].data = currentData;
-    characterSheets[currentSheetIndex].name = currentData.name || "Unnamed Character";
-    characterSheets[currentSheetIndex].lastModified = new Date().toISOString();
-    updateCharacterList();
-}
-
-// Load a specific sheet
-function loadSheet(index) {
-    if (index < 0 || index >= characterSheets.length) {
-        console.error("Invalid sheet index:", index);
+    if (!testUrl) {
+        alert("Please enter a webhook URL first!");
         return;
     }
     
-    // Save current sheet before switching
-    if (currentSheetIndex !== index) {
-        updateCurrentSheet();
-    }
+    const characterName = document.getElementById("character-name")?.innerText.trim() || "Test Character";
     
-    currentSheetIndex = index;
-    const sheet = characterSheets[index];
-    
-    console.log(`Loading sheet: ${sheet.name}`);
-    
-    // Load the character data
-    load_character(sheet.data);
-    
-    updateCharacterList();
+    sendToDiscord(testUrl, {
+        characterName: characterName,
+        message: "Test connection successful! Your dice rolls will appear here.",
+        isTest: true
+    });
 }
 
-// Create the character manager panel
-function createCharacterManagerPanel() {
-    if (characterManagerPanel) return;
+// Send roll results to Discord
+function sendToDiscord(webhookUrl, data) {
+    if (!webhookUrl) {
+        console.error("No webhook URL provided");
+        return;
+    }
     
-    characterManagerPanel = document.createElement("div");
-    characterManagerPanel.id = "character-manager-panel";
-    characterManagerPanel.style.cssText = `
-        position: fixed;
-        left: 10px;
-        top: 50%;
-        transform: translateY(-50%);
-        background: #fff;
-        border: 2px solid #C50852;
-        border-radius: 8px;
-        padding: 12px;
-        z-index: 9998;
-        width: 250px;
-        max-height: 80vh;
-        overflow-y: auto;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.2);
-        font-family: sans-serif;
-        font-size: 13px;
+    let content = "";
+    let embeds = [];
+    
+    if (data.isTest) {
+        content = `🎲 **${data.characterName}** - ${data.message}`;
+    } else {
+        // Format the roll result
+        const characterName = data.characterName || "Unknown Character";
+        
+        let description = `**All Dice Rolled:**\n${data.allDiceDetailed}\n`;
+        
+        if (data.total !== undefined) {
+            description += `\n📊 **Total:** ${data.total}\n`;
+        }
+        
+        if (data.effectDetailed) {
+            description += `\n⭐ **Effect Die:** ${data.effectDetailed}\n`;
+        }
+        
+        if (data.hitchesDetailed && data.hitchesDetailed.length > 0) {
+            description += `\n⚠️ **Hitches:**\n${data.hitchesDetailed}\n`;
+        }
+        
+        embeds.push({
+            title: `🎲 ${characterName} rolled dice!`,
+            description: description,
+            color: 12853058, // Pink/red color
+            timestamp: new Date().toISOString()
+        });
+    }
+    
+    const payload = {
+        content: content,
+        embeds: embeds.length > 0 ? embeds : undefined
+    };
+    
+    fetch(webhookUrl, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload)
+    })
+    .then(response => {
+        if (response.ok) {
+            console.log("Successfully sent to Discord");
+            if (data.isTest) {
+                alert("Test message sent successfully! Check your Discord channel.");
+            }
+        } else {
+            console.error("Failed to send to Discord:", response.status);
+            if (data.isTest) {
+                alert("Failed to send test message. Check your webhook URL.");
+            }
+        }
+    })
+    .catch(error => {
+        console.error("Error sending to Discord:", error);
+        if (data.isTest) {
+            alert("Error sending to Discord: " + error.message);
+        }
+    });
+}
+
+// Load Discord settings from localStorage
+function loadDiscordSettings() {
+    const savedUrl = localStorage.getItem('discord_webhook_url');
+    const savedEnabled = localStorage.getItem('discord_enabled');
+    
+    if (savedUrl) {
+        discordWebhookUrl = savedUrl;
+    }
+    
+    if (savedEnabled) {
+        discordEnabled = savedEnabled === 'true';
+    }
+}
+
+// Initialize Discord integration
+window.addEventListener("load", function() {
+    setTimeout(() => {
+        loadDiscordSettings();
+        createDiscordSettingsPanel();
+        console.log("Discord integration initialized!");
+    }, 2000);
+});
+
+// Export function to be called when dice are rolled
+window.postRollToDiscord = function(rollData) {
+    if (!discordEnabled || !discordWebhookUrl) {
+        console.log("Discord posting disabled or no webhook URL");
+        return;
+    }
+    
+    const characterName = document.getElementById("character-name")?.innerText.trim() || "Unknown Character";
+    
+    // Format all dice with their source names
+    const allDiceDetailed = rollData.allResults.map(r => {
+        const sourceName = r.header || "Unknown";
+        return `• **${sourceName}** ${r.die} → ${r.roll}`;
+    }).join("\n");
+    
+    // Format total breakdown with source names
+    const totalBreakdownDetailed = rollData.totalDice.map(d => {
+        const sourceName = d.header || "Unknown";
+        return `• **${sourceName}** ${d.die} → ${d.roll}`;
+    }).join("\n");
+    
+    // Format effect with just the die size
+    let effectDetailed = null;
+    if (rollData.effectDie) {
+        effectDetailed = rollData.effectDie.die;
+    }
+    
+    // Format hitches with source names
+    let hitchesDetailed = null;
+    if (rollData.hitches.length > 0) {
+        hitchesDetailed = rollData.hitches.map(h => {
+            const hitchSource = h.header || "Unknown";
+            return `• **${hitchSource}** ${h.die} → 1`;
+        }).join("\n");
+    }
+    
+    const discordData = {
+        characterName: characterName,
+        allDiceDetailed: allDiceDetailed,
+        total: rollData.totalSum,
+        effectDetailed: effectDetailed,
+        hitchesDetailed: hitchesDetailed,
+        isTest: false
+    };
+    
+    sendToDiscord(discordWebhookUrl, discordData);
+};
+
+// ============================================================================
+// THEME SWITCHER SYSTEM
+// Add this to the END of your sheet.js file
+// ============================================================================
+
+const themes = {
+    classic: {
+        name: "Classic (Red/White)",
+        primary: "#C50852",
+        background: "#FFFFFF",
+        text: "#000000",
+        secondaryText: "#666666",
+        darkMode: {
+            primary: "#E63960",
+            background: "#1C1C1E",
+            text: "#E5E5E7",
+            secondaryText: "#A0A0A5"
+        }
+    },
+    forest: {
+        name: "Forest Green",
+        primary: "#2D6A4F",
+        background: "#F8F9FA",
+        text: "#1B4332",
+        secondaryText: "#52796F",
+        darkMode: {
+            primary: "#52B788",
+            background: "#1A1C1B",
+            text: "#E0E5E3",
+            secondaryText: "#A5B5B0"
+        }
+    },
+    ocean: {
+        name: "Ocean Blue",
+        primary: "#023E8A",
+        background: "#F8F9FA",
+        text: "#03045E",
+        secondaryText: "#0077B6",
+        darkMode: {
+            primary: "#48CAE4",
+            background: "#181A1C",
+            text: "#E3EEF2",
+            secondaryText: "#A8C8D5"
+        }
+    },
+    sunset: {
+        name: "Sunset Orange",
+        primary: "#F77F00",
+        background: "#FCFCFC",
+        text: "#003049",
+        secondaryText: "#D62828",
+        darkMode: {
+            primary: "#FFB347",
+            background: "#1C1A18",
+            text: "#E8E3DD",
+            secondaryText: "#B8A695"
+        }
+    },
+    purple: {
+        name: "Royal Purple",
+        primary: "#5A189A",
+        background: "#F8F9FA",
+        text: "#240046",
+        secondaryText: "#7209B7",
+        darkMode: {
+            primary: "#C77DFF",
+            background: "#1A181C",
+            text: "#E8E3F0",
+            secondaryText: "#B8A8C8"
+        }
+    }
+};
+
+let currentTheme = 'classic';
+let isDarkMode = false;
+
+// Apply theme to the page
+function applyTheme(themeName, darkModeEnabled = null) {
+    const themeConfig = themes[themeName];
+    if (!themeConfig) return;
+    
+    currentTheme = themeName;
+    
+    // If darkModeEnabled is explicitly passed, use it; otherwise use current state
+    if (darkModeEnabled !== null) {
+        isDarkMode = darkModeEnabled;
+    }
+    
+    // Select light or dark mode colors
+    const theme = isDarkMode ? themeConfig.darkMode : themeConfig;
+    
+    // Create or update style tag
+    let styleTag = document.getElementById('dynamic-theme-styles');
+    if (!styleTag) {
+        styleTag = document.createElement('style');
+        styleTag.id = 'dynamic-theme-styles';
+        document.head.appendChild(styleTag);
+    }
+    
+    styleTag.textContent = `
+        /* Theme: ${theme.name} */
+        body {
+            background-color: ${theme.background};
+            color: ${theme.text};
+        }
+        
+        .page {
+            background-color: ${theme.background};
+        }
+        
+        /* Headers and titles */
+        .title, h2, .header {
+            color: ${theme.primary} !important;
+        }
+        
+        /* Lines and borders */
+        hr {
+            border-color: ${theme.primary} !important;
+            background-color: ${theme.primary} !important;
+        }
+        
+        .ruler line {
+            stroke: ${theme.primary} !important;
+        }
+        
+        .ruler:before {
+            color: ${theme.primary} !important;
+        }
+        
+        /* Circles and curves */
+        #circle {
+            border-color: ${theme.primary} !important;
+        }
+        
+        #attribute-curve path {
+            stroke: ${theme.primary} !important;
+        }
+        
+        /* Dice values <c> tags - these are font icons, color is the die color */
+        c {
+            color: ${theme.primary} !important;
+        }
+        
+        /* Attribute text styling */
+        #attributes div {
+            color: ${theme.primary} !important;
+        }
+        
+        /* Attribute <c> tags specifically - ensure they use theme color */
+        #attributes div c {
+            color: ${theme.primary} !important;
+        }
+        
+        /* Distinction bullets */
+        #distinctions li:before, li:before {
+            color: ${theme.primary} !important;
+        }
+        
+        /* Add-item buttons */
+        .add-item:before {
+            color: ${theme.primary} !important;
+        }
+        
+        /* Remove-item buttons */
+        #remove-item:before {
+            color: ${theme.primary} !important;
+        }
+        
+        /* Context menu button */
+        #context-menu-button:before {
+            color: ${theme.primary} !important;
+        }
+        
+        /* Panel borders */
+        #dice-pool-panel, #character-manager-panel, #roll-results-panel, 
+        #roll-history-panel, #discord-settings-panel, #theme-selector-panel {
+            border-color: ${theme.primary} !important;
+            background: ${theme.background} !important;
+        }
+        
+        /* Context menu */
+        .context-menu {
+            border-color: ${theme.primary} !important;
+        }
+        
+        .context-menu li:hover,
+        .context-menu input[type="radio"]:checked + label {
+            background: ${theme.primary} !important;
+        }
+        
+        .context-menu label:hover {
+            background: ${theme.primary}3f !important;
+        }
+        
+        .fa-ellipsis-v:before {
+            color: ${theme.primary} !important;
+        }
+        
+        /* Signature asset */
+        .signature-asset {
+            border-color: ${theme.primary} !important;
+        }
+        
+        .signature-asset .header {
+            background: ${theme.primary} !important;
+        }
+        
+        /* Resources */
+        .resources .header {
+            color: ${theme.primary} !important;
+            border-bottom-color: ${theme.primary} !important;
+        }
+        
+        .resources .trait > div + h2:before {
+            color: ${theme.primary} !important;
+        }
+        
+        /* Text colors */
+        .trait-group, .trait, .attribute {
+            color: ${theme.text};
+        }
+        
+        div[contenteditable] {
+            color: ${theme.text};
+        }
+        
+        /* Secondary text */
+        .help-section-header, #legal {
+            color: ${theme.secondaryText} !important;
+        }
+        
+        /* Trait group header backgrounds in dark mode */
+        .header {
+            background-color: ${isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)'} !important;
+        }
+        
+        /* Values/Roles header backgrounds */
+        .values .header, .roles .header {
+            background-color: ${isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'black'} !important;
+            color: ${isDarkMode ? theme.primary : 'white'} !important;
+        }
+        
+        /* Signature asset background */
+        .signature-asset {
+            background-color: ${isDarkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)'} !important;
+            border-color: ${theme.primary} !important;
+        }
+        
+        /* Signature asset header */
+        .signature-asset .header {
+            background: ${theme.primary} !important;
+            color: ${isDarkMode ? '#FFFFFF' : 'white'} !important;
+        }
+        
+        /* PP (plot point) background */
+        pp {
+            background: ${isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)'} !important;
+            border-color: ${isDarkMode ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)'} !important;
+        }
+        
+        /* Help modal button */
+        #help-modal #close button:hover {
+            color: ${theme.primary} !important;
+        }
+        
+        #help-modal #legal a {
+            color: ${theme.primary} !important;
+        }
     `;
     
-    // Header
-    const header = document.createElement("div");
-    header.style.cssText = "font-weight: bold; margin-bottom: 10px; font-size: 15px; color: #C50852;";
-    header.innerHTML = "📋 Character Sheets";
-    characterManagerPanel.appendChild(header);
-    
-    // Character list container
-    const listContainer = document.createElement("div");
-    listContainer.id = "character-list";
-    listContainer.style.marginBottom = "10px";
-    characterManagerPanel.appendChild(listContainer);
-    
-    // Add new character button
-    const addBtn = document.createElement("button");
-    addBtn.textContent = "+ New Character";
-    addBtn.style.cssText = `
-        width: 100%;
+    // Save to localStorage
+    localStorage.setItem('selected_theme', themeName);
+    localStorage.setItem('dark_mode_enabled', isDarkMode ? 'true' : 'false');
+}
+
+// Create theme selector button
+function createThemeSelectorButton() {
+    const themeBtn = document.createElement("button");
+    themeBtn.id = "theme-selector-btn";
+    themeBtn.innerHTML = "🎨";
+    themeBtn.title = "Change Theme";
+    themeBtn.style.cssText = `
+        position: fixed;
+        right: 20px;
+        top: 80px;
+        background: #8B4789;
+        color: white;
+        border: none;
+        width: 50px;
+        height: 50px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 24px;
+        z-index: 9999;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    `;
+    themeBtn.addEventListener("click", showThemeSelector);
+    document.body.appendChild(themeBtn);
+    console.log("Theme selector button created");
+}
+
+// Show theme selector panel
+function showThemeSelector() {
+    const existingPanel = document.getElementById("theme-selector-panel");
+    if (existingPanel) {
+        existingPanel.remove();
+        return;
+    }
+
+    const panel = document.createElement("div");
+    panel.id = "theme-selector-panel";
+    panel.style.cssText = `
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: white;
+        border: 3px solid #666;
+        border-radius: 10px;
+        padding: 20px;
+        z-index: 10004;
+        width: 450px;
+        box-shadow: 0 8px 16px rgba(0,0,0,0.3);
+        font-family: sans-serif;
+    `;
+
+    let themesHTML = `
+        <div style="font-weight: bold; margin-bottom: 15px; font-size: 18px; color: #333; display: flex; justify-content: space-between; align-items: center;">
+            <span>🎨 Choose Theme</span>
+            <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: normal; cursor: pointer;">
+                <input type="checkbox" id="dark-mode-toggle" ${isDarkMode ? 'checked' : ''} 
+                       style="width: 18px; height: 18px; cursor: pointer;">
+                <span>Dark Mode</span>
+            </label>
+        </div>
+        <div style="display: grid; gap: 10px;">
+    `;
+
+    for (const [key, themeConfig] of Object.entries(themes)) {
+        const isActive = key === currentTheme;
+        const theme = isDarkMode ? themeConfig.darkMode : themeConfig;
+        
+        themesHTML += `
+            <div class="theme-option" data-theme="${key}" style="
+                padding: 15px;
+                border: 2px solid ${isActive ? theme.primary : '#ddd'};
+                border-radius: 8px;
+                cursor: pointer;
+                background: ${theme.background};
+                color: ${theme.text};
+                transition: all 0.2s;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            ">
+                <div>
+                    <div style="font-weight: bold; margin-bottom: 5px;">${themeConfig.name}</div>
+                    <div style="display: flex; gap: 5px;">
+                        <div style="width: 30px; height: 20px; background: ${theme.primary}; border-radius: 3px;"></div>
+                        <div style="width: 30px; height: 20px; background: ${theme.background}; border: 1px solid #ddd; border-radius: 3px;"></div>
+                        <div style="width: 30px; height: 20px; background: ${theme.text}; border-radius: 3px;"></div>
+                    </div>
+                </div>
+                ${isActive ? '<div style="font-size: 20px;">✓</div>' : ''}
+            </div>
+        `;
+    }
+
+    themesHTML += `
+        </div>
+        <div style="margin-top: 15px;">
+            <button id="theme-close-btn" style="
+                width: 100%;
+                background: #666;
+                color: white;
+                border: none;
+                padding: 10px;
+                border-radius: 6px;
+                cursor: pointer;
+                font-weight: bold;
+            ">Close</button>
+        </div>
+    `;
+
+    panel.innerHTML = themesHTML;
+    document.body.appendChild(panel);
+
+    // Dark mode toggle handler
+    const darkModeToggle = document.getElementById('dark-mode-toggle');
+    darkModeToggle.addEventListener('change', (e) => {
+        applyTheme(currentTheme, e.target.checked);
+        panel.remove();
+        showThemeSelector(); // Refresh the panel with new colors
+    });
+
+    // Add click handlers for theme options
+    panel.querySelectorAll('.theme-option').forEach(option => {
+        option.addEventListener('click', () => {
+            const themeName = option.getAttribute('data-theme');
+            applyTheme(themeName);
+            panel.remove();
+        });
+
+        // Hover effect
+        option.addEventListener('mouseenter', function() {
+            if (this.getAttribute('data-theme') !== currentTheme) {
+                this.style.transform = 'scale(1.02)';
+                this.style.boxShadow = '0 4px 8px rgba(0,0,0,0.1)';
+            }
+        });
+        option.addEventListener('mouseleave', function() {
+            this.style.transform = 'scale(1)';
+            this.style.boxShadow = 'none';
+        });
+    });
+
+    document.getElementById("theme-close-btn").addEventListener("click", () => panel.remove());
+}
+
+// Initialize theme system
+window.addEventListener("load", function() {
+    setTimeout(() => {
+        // Load saved theme and dark mode preference
+        const savedTheme = localStorage.getItem('selected_theme') || 'classic';
+        const savedDarkMode = localStorage.getItem('dark_mode_enabled') === 'true';
+        
+        applyTheme(savedTheme, savedDarkMode);
+        
+        createThemeSelectorButton();
+        console.log("Theme system initialized!");
+    }, 2500);
+});
+
+// ============================================================================
+// EDIT MODE TOGGLE SYSTEM
+// Add this to the END of your sheet.js file
+// ============================================================================
+
+let editModeEnabled = true; // Start with editing enabled
+
+// Create edit mode toggle button
+function createEditModeToggle() {
+    const editBtn = document.createElement("button");
+    editBtn.id = "edit-mode-btn";
+    editBtn.innerHTML = "🔒";
+    editBtn.title = "Lock/Unlock Editing";
+    editBtn.style.cssText = `
+        position: fixed;
+        right: 20px;
+        top: 200px;
         background: #28a745;
         color: white;
         border: none;
-        padding: 8px;
-        border-radius: 4px;
+        width: 50px;
+        height: 50px;
+        border-radius: 8px;
         cursor: pointer;
-        font-weight: bold;
-        margin-bottom: 8px;
+        font-size: 24px;
+        z-index: 9999;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        transition: background-color 0.2s;
     `;
-    addBtn.addEventListener("click", createNewCharacter);
-    characterManagerPanel.appendChild(addBtn);
+    editBtn.addEventListener("click", toggleEditMode);
+    document.body.appendChild(editBtn);
     
-    // Export/Import buttons
-    const exportBtn = document.createElement("button");
-    exportBtn.textContent = "💾 Export All";
-    exportBtn.style.cssText = `
-        width: 100%;
-        background: #007bff;
-        color: white;
-        border: none;
-        padding: 8px;
-        border-radius: 4px;
-        cursor: pointer;
-        margin-bottom: 5px;
-    `;
-    exportBtn.addEventListener("click", exportAllCharacters);
-    characterManagerPanel.appendChild(exportBtn);
-    
-    const importBtn = document.createElement("button");
-    importBtn.textContent = "📂 Import";
-    importBtn.style.cssText = `
-        width: 100%;
-        background: #6c757d;
-        color: white;
-        border: none;
-        padding: 8px;
-        border-radius: 4px;
-        cursor: pointer;
-    `;
-    importBtn.addEventListener("click", importCharacters);
-    characterManagerPanel.appendChild(importBtn);
-    
-    // Minimize button
-    const minimizeBtn = document.createElement("button");
-    minimizeBtn.textContent = "◄";
-    minimizeBtn.title = "Minimize";
-    minimizeBtn.style.cssText = `
-        position: absolute;
-        top: 5px;
-        right: 5px;
-        background: #ddd;
-        border: none;
-        width: 24px;
-        height: 24px;
-        border-radius: 3px;
-        cursor: pointer;
-        font-size: 12px;
-    `;
-    minimizeBtn.addEventListener("click", toggleCharacterManager);
-    characterManagerPanel.appendChild(minimizeBtn);
-    
-    document.body.appendChild(characterManagerPanel);
-    updateCharacterList();
+    // Apply initial state
+    applyEditMode();
 }
 
-// Update the character list display
-function updateCharacterList() {
-    const listContainer = document.getElementById("character-list");
-    if (!listContainer) return;
+// Toggle edit mode on/off
+function toggleEditMode() {
+    editModeEnabled = !editModeEnabled;
+    applyEditMode();
     
-    listContainer.innerHTML = "";
+    // Save preference
+    localStorage.setItem('edit_mode_enabled', editModeEnabled ? 'true' : 'false');
+}
+
+// Apply edit mode state to the page
+function applyEditMode() {
+    const editBtn = document.getElementById("edit-mode-btn");
     
-    characterSheets.forEach((sheet, index) => {
-        const sheetDiv = document.createElement("div");
-        const isActive = index === currentSheetIndex;
+    // Create or update style tag for edit mode
+    let styleTag = document.getElementById('edit-mode-styles');
+    if (!styleTag) {
+        styleTag = document.createElement('style');
+        styleTag.id = 'edit-mode-styles';
+        document.head.appendChild(styleTag);
+    }
+    
+    if (editModeEnabled) {
+        // Edit mode ON - show all controls
+        editBtn.innerHTML = "🔓";
+        editBtn.title = "Lock Editing (Currently Unlocked)";
+        editBtn.style.background = "#28a745";
         
-        sheetDiv.style.cssText = `
-            padding: 10px;
-            margin: 5px 0;
-            border: 2px solid ${isActive ? '#C50852' : '#ddd'};
-            background: ${isActive ? '#fff0f5' : '#f9f9f9'};
-            border-radius: 4px;
-            cursor: pointer;
-            position: relative;
-            transition: all 0.2s;
+        styleTag.textContent = `
+            /* Show all edit controls */
+            .add-item,
+            #remove-item,
+            #context-menu-button {
+                display: block !important;
+            }
         `;
+    } else {
+        // Edit mode OFF - hide all controls
+        editBtn.innerHTML = "🔒";
+        editBtn.title = "Unlock Editing (Currently Locked)";
+        editBtn.style.background = "#dc3545";
         
-        sheetDiv.innerHTML = `
-            <div style="font-weight: bold; margin-bottom: 3px;">${sheet.name || 'Unnamed'}</div>
-            <div style="font-size: 11px; color: #666;">
-                Modified: ${new Date(sheet.lastModified).toLocaleDateString()}
-            </div>
+        styleTag.textContent = `
+            /* Hide all edit controls */
+            .add-item,
+            #remove-item,
+            #context-menu-button {
+                display: none !important;
+            }
+            
+            /* Also hide the no-print class items when locked */
+            .no-print:not(#edit-mode-btn):not(#discord-settings-btn):not(#theme-selector-btn):not(#roll-history-btn):not(#dice-pool-panel):not(#roll-results-panel):not(#roll-history-panel):not(#discord-settings-panel):not(#theme-selector-panel):not(#character-manager-panel) {
+                display: none !important;
+            }
         `;
-        
-        // Click to switch
-        sheetDiv.addEventListener("click", () => {
-            if (index !== currentSheetIndex) {
-                loadSheet(index);
-            }
-        });
-        
-        // Delete button
-        if (characterSheets.length > 1) {
-            const deleteBtn = document.createElement("button");
-            deleteBtn.textContent = "×";
-            deleteBtn.style.cssText = `
-                position: absolute;
-                top: 5px;
-                right: 5px;
-                background: #ff4444;
-                color: white;
-                border: none;
-                border-radius: 3px;
-                width: 20px;
-                height: 20px;
-                cursor: pointer;
-                font-size: 16px;
-                line-height: 1;
-            `;
-            deleteBtn.addEventListener("click", (e) => {
-                e.stopPropagation();
-                deleteCharacter(index);
-            });
-            sheetDiv.appendChild(deleteBtn);
-        }
-        
-        listContainer.appendChild(sheetDiv);
-    });
-}
-
-// Create a new character
-function createNewCharacter() {
-    // Save current sheet first
-    updateCurrentSheet();
-    
-    const newSheet = {
-        id: generateSheetId(),
-        name: `Character ${characterSheets.length + 1}`,
-        data: { version: 2, data: {}, name: `Character ${characterSheets.length + 1}` },
-        lastModified: new Date().toISOString()
-    };
-    
-    characterSheets.push(newSheet);
-    currentSheetIndex = characterSheets.length - 1;
-    
-    // Clear the page but keep structure
-    clearAllFields();
-    
-    // Set the character name
-    const nameElem = document.getElementById("character-name");
-    if (nameElem) {
-        nameElem.innerText = newSheet.name;
-    }
-    
-    updateCharacterList();
-}
-
-// Clear all fields on the page (but preserve templates) - FIX #3
-function clearAllFields() {
-    // Load the ORIGINAL page template that was saved on first load
-    if (originalPageState) {
-        load_character(originalPageState);
-    } else {
-        // Fallback: just clear everything
-        load_character({ version: 2, data: {}, name: "" });
-    }
-    
-    // Clear character name
-    const nameElem = document.getElementById("character-name");
-    if (nameElem) {
-        nameElem.innerHTML = "";
-    }
-    
-    // Trigger attribute position update if attributes exist
-    if (typeof update_attribute_positions === 'function') {
-        update_attribute_positions();
-    }
-    
-    // Rescan for dice icons
-    if (typeof scanExistingHeaders === 'function') {
-        setTimeout(() => scanExistingHeaders(), 100);
     }
 }
 
-// Delete a character
-function deleteCharacter(index) {
-    if (characterSheets.length <= 1) {
-        alert("Cannot delete the last character sheet!");
-        return;
-    }
-    
-    const sheet = characterSheets[index];
-    if (!confirm(`Delete character "${sheet.name}"?`)) {
-        return;
-    }
-    
-    characterSheets.splice(index, 1);
-    
-    // Adjust current index
-    if (currentSheetIndex >= characterSheets.length) {
-        currentSheetIndex = characterSheets.length - 1;
-    } else if (index < currentSheetIndex) {
-        currentSheetIndex--;
-    }
-    
-    loadSheet(currentSheetIndex);
-}
-
-// Export all characters to a single JSON file
-function exportAllCharacters() {
-    updateCurrentSheet(); // Save current before export
-    
-    const exportData = {
-        version: 2,
-        exportDate: new Date().toISOString(),
-        sheets: characterSheets
-    };
-    
-    const uri = encodeURI("data:application/json;charset=utf-8," + JSON.stringify(exportData, null, 2));
-    const link = document.createElement("a");
-    link.setAttribute("href", uri);
-    link.setAttribute("download", `cortex_characters_${Date.now()}.json`);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-}
-
-// Import characters from a JSON file
-function importCharacters() {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".json";
-    
-    input.addEventListener("change", (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        
-        const reader = new FileReader();
-        reader.addEventListener("loadend", () => {
-            try {
-                const importData = JSON.parse(reader.result);
-                
-                // Check if it's a multi-character export or single character
-                if (importData.sheets && Array.isArray(importData.sheets)) {
-                    // Multi-character import
-                    if (confirm(`Import ${importData.sheets.length} character(s)? This will add to your existing characters.`)) {
-                        importData.sheets.forEach(sheet => {
-                            sheet.id = generateSheetId(); // Generate new IDs to avoid conflicts
-                            characterSheets.push(sheet);
-                        });
-                        updateCharacterList();
-                        alert(`Successfully imported ${importData.sheets.length} character(s)!`);
-                    }
-                } else {
-                    // Single character import (old format)
-                    const newSheet = {
-                        id: generateSheetId(),
-                        name: importData.name || "Imported Character",
-                        data: importData,
-                        lastModified: new Date().toISOString()
-                    };
-                    
-                    if (confirm(`Import character "${newSheet.name}"?`)) {
-                        characterSheets.push(newSheet);
-                        currentSheetIndex = characterSheets.length - 1;
-                        loadSheet(currentSheetIndex);
-                        alert("Character imported successfully!");
-                    }
-                }
-            } catch (err) {
-                alert("Error importing file: " + err.message);
-                console.error("Import error:", err);
-            }
-        });
-        reader.readAsText(file);
-    });
-    
-    input.click();
-}
-
-// Toggle character manager visibility
-function toggleCharacterManager() {
-    if (!characterManagerPanel) return;
-    
-    const isMinimized = characterManagerPanel.style.width === '40px';
-    
-    if (isMinimized) {
-        // Expand
-        characterManagerPanel.style.width = '250px';
-        characterManagerPanel.querySelector('#character-list').style.display = 'block';
-        characterManagerPanel.querySelectorAll('button').forEach(btn => {
-            if (btn.textContent !== '◄') {
-                btn.style.display = 'block';
-            }
-        });
-        characterManagerPanel.querySelector('div').style.display = 'block';
-        characterManagerPanel.querySelector('button[title="Minimize"]').textContent = '◄';
-    } else {
-        // Minimize
-        characterManagerPanel.style.width = '40px';
-        characterManagerPanel.querySelector('#character-list').style.display = 'none';
-        characterManagerPanel.querySelectorAll('button').forEach(btn => {
-            if (btn.textContent !== '◄') {
-                btn.style.display = 'none';
-            }
-        });
-        characterManagerPanel.querySelector('div').style.display = 'none';
-        characterManagerPanel.querySelector('button[title="Minimize"]').textContent = '►';
-    }
-}
-
-// Auto-save current sheet periodically
-setInterval(() => {
-    if (characterSheets.length > 0) {
-        updateCurrentSheet();
-    }
-}, 30000); // Auto-save every 30 seconds
-
-// Initialize on page load - CAPTURE TEMPLATE IMMEDIATELY
-window.addEventListener("DOMContentLoaded", function() {
-    // Capture original state RIGHT when DOM loads, before any user modifications
-    setTimeout(() => {
-        if (originalPageState === null) {
-            originalPageState = captureCurrentSheet();
-            console.log("Captured original page template at DOMContentLoaded");
-        }
-    }, 100);
-});
-
+// Initialize edit mode toggle
 window.addEventListener("load", function() {
     setTimeout(() => {
-        initializeCharacterManager();
-        console.log("Character manager initialized!");
-    }, 1500);
+        // Load saved preference
+        const savedMode = localStorage.getItem('edit_mode_enabled');
+        if (savedMode !== null) {
+            editModeEnabled = savedMode === 'true';
+        }
+        
+        createEditModeToggle();
+        console.log("Edit mode toggle initialized!");
+    }, 2500);
 });
 
-// Expose functions globally for debugging
-window.characterManager = {
-    updateCurrentSheet,
-    loadSheet,
-    createNewCharacter,
-    deleteCharacter,
-    exportAllCharacters,
-    importCharacters,
-    getSheets: () => characterSheets,
-    getCurrentIndex: () => currentSheetIndex
-};
+// Also disable contenteditable when locked
+document.addEventListener('focus', function(e) {
+    if (!editModeEnabled && e.target.hasAttribute('contenteditable')) {
+        // Allow reading but prevent editing
+        e.target.blur();
+    }
+}, true);
+
+// Prevent accidental edits in locked mode
+document.addEventListener('keydown', function(e) {
+    if (!editModeEnabled) {
+        const target = e.target;
+        if (target.hasAttribute('contenteditable') || 
+            target.tagName === 'INPUT' || 
+            target.tagName === 'TEXTAREA') {
+            // Allow Ctrl+C for copying, but block other edits
+            if (!(e.ctrlKey && e.key === 'c') && 
+                !(e.ctrlKey && e.key === 'a') &&
+                e.key !== 'Tab') {
+                e.preventDefault();
+            }
+        }
+    }
+}, true);
