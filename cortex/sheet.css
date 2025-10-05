@@ -1368,12 +1368,11 @@ ref
 {
 	margin-top: 2mm;
 }
-//.signature-asset .trait > div:before
-//{
-//	display: inline;
-//	content: ':';
-//	margin: 0 1mm 0 -1mm;
-//}
+/* .signature-asset .trait > div:before {
+	display: inline;
+	content: ':';
+	margin: 0 1mm 0 -1mm;
+} */
 .signature-asset .trait #remove-item:before
 {
 	left: -9mm;
