@@ -2285,6 +2285,33 @@ function applyTheme(themeName, darkModeEnabled = null) {
         #help-modal #legal a {
             color: ${theme.primary} !important;
         }
+        
+        /* Stress section - fix colors */
+        .stress h2 {
+            color: ${theme.text} !important;
+        }
+        
+        .stress .header {
+            color: ${theme.primary} !important;
+            background-color: ${isDarkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)'} !important;
+        }
+        
+        .stress hr {
+            border-color: ${theme.text} !important;
+            background-color: ${theme.text} !important;
+        }
+        
+        /* Stress dice icons - these are in ::before so harder to target */
+        .stress div.trait {
+            color: ${theme.text} !important;
+        }
+        
+        /* Stress input fields - the white boxes with labels */
+        .stress h2:nth-child(2) {
+            background: transparent !important;
+            color: ${theme.primary} !important;
+            border: 1px solid ${theme.primary} !important;
+        }
     `;
     
     // Save to localStorage
@@ -2581,3 +2608,145 @@ document.addEventListener('keydown', function(e) {
         }
     }
 }, true);
+
+// ============================================================================
+// STRESS SYSTEM - CLEAN SOLUTION
+// Add this to your sheet.js - Replace all previous stress code with this
+// ============================================================================
+
+function initializeStressSystem() {
+    console.log("Initializing stress system...");
+    scanStressTraits();
+}
+
+function scanStressTraits() {
+    const stressTraits = document.querySelectorAll('.stress .trait:not(.template)');
+    
+    stressTraits.forEach(trait => {
+        if (!trait.querySelector('.stress-dice')) {
+            addStressDice(trait);
+        }
+    });
+}
+
+function addStressDice(traitElement) {
+    const diceContainer = document.createElement('div');
+    diceContainer.className = 'stress-dice';
+    
+    const diceValues = ['4', '6', '8', '0', '2']; // d4, d6, d8, d10, d12
+    const diceTypes = ['d4', 'd6', 'd8', 'd10', 'd12'];
+    
+    diceValues.forEach((value, index) => {
+        const die = document.createElement('c');
+        die.textContent = value;
+        die.dataset.die = diceTypes[index];
+        
+        die.addEventListener('click', (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            toggleStressDie(traitElement, diceTypes[index]);
+        });
+        
+        diceContainer.appendChild(die);
+    });
+    
+    traitElement.appendChild(diceContainer);
+    
+    // Load saved state
+    const savedDie = traitElement.dataset.selectedStressDie;
+    if (savedDie) {
+        const dieElement = diceContainer.querySelector(`c[data-die="${savedDie}"]`);
+        if (dieElement) {
+            dieElement.classList.add('selected');
+            dieElement.style.color = 'var(--theme-primary, #C50852)';
+        }
+    }
+}
+
+function toggleStressDie(traitElement, dieType) {
+    const allDice = traitElement.querySelectorAll('.stress-dice c');
+    const clickedDie = traitElement.querySelector(`.stress-dice c[data-die="${dieType}"]`);
+    
+    // Check if already selected
+    const isSelected = clickedDie.classList.contains('selected');
+    
+    // Deselect all
+    allDice.forEach(die => {
+        die.classList.remove('selected');
+        die.style.color = '';
+    });
+    
+    // If wasn't selected, select it
+    if (!isSelected) {
+        clickedDie.classList.add('selected');
+        clickedDie.style.color = 'var(--theme-primary, #C50852)';
+        traitElement.dataset.selectedStressDie = dieType;
+    } else {
+        delete traitElement.dataset.selectedStressDie;
+    }
+}
+
+// Prevent dice icons from being added to stress traits
+const originalScanHeaders = window.scanExistingHeaders;
+window.scanExistingHeaders = function() {
+    console.log("Scanning for headers with dice values...");
+    document.querySelectorAll(".dice-icon").forEach(icon => icon.remove());
+    
+    let headersFound = 0;
+    
+    // Skip stress traits when adding dice icons
+    const h2Selectors = [
+        ".trait-group:not(.stress) h2:not(.template h2)",
+        ".trait:not(.stress .trait) h2:not(.template h2)"
+    ];
+    
+    h2Selectors.forEach(selector => {
+        const headers = document.querySelectorAll(selector);
+        headers.forEach(header => {
+            if (header.querySelector('c')) {
+                attachDiceIcon(header);
+                headersFound++;
+            }
+        });
+    });
+    
+    // Handle attributes
+    const attributes = document.querySelectorAll('.attribute:not(.template)');
+    attributes.forEach(attr => {
+        const cTag = attr.querySelector('c');
+        const nameDiv = attr.querySelector('div[contenteditable]');
+        if (cTag && nameDiv) {
+            attachDiceIconToAttribute(attr, nameDiv);
+            headersFound++;
+        }
+    });
+    
+    console.log(`Total headers with dice icons: ${headersFound}`);
+};
+
+// Initialize
+window.addEventListener("load", function() {
+    setTimeout(() => {
+        initializeStressSystem();
+        
+        // Watch for new stress traits
+        const observer = new MutationObserver((mutations) => {
+            let shouldRescan = false;
+            mutations.forEach(mutation => {
+                mutation.addedNodes.forEach(node => {
+                    if (node.nodeType === 1 && node.matches && 
+                        (node.matches('.stress .trait') || node.querySelector('.stress .trait'))) {
+                        shouldRescan = true;
+                    }
+                });
+            });
+            if (shouldRescan) {
+                setTimeout(() => scanStressTraits(), 100);
+            }
+        });
+        
+        observer.observe(document.body, { childList: true, subtree: true });
+        
+        console.log("Stress system initialized!");
+    }, 3500);
+});

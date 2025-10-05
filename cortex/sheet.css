@@ -1525,61 +1525,34 @@ ref
 }
 
 /* Stress */
-.stress
-{
+.stress {
 	flex-wrap: wrap;
 }
-.stress .header
-{
+.stress .header {
     flex: 100%;
 	column-span: all;
 	writing-mode: unset;
 	transform: unset;
 	margin-bottom: 2mm;
 }
-.stress h2:nth-child(2)
-{
-//	width: 25%;
+.stress h2:nth-child(2) {
 	text-align: center;
-	background: white;
+	background: transparent;
 	padding: 0 2mm 0 2mm;
 	transform: translate(-50%, 0);
 	margin-left: 15mm;
+	border: 1px solid currentColor;
 }
-.stress h2:nth-child(3)
-{
-//	font-size: 14pt;
+.stress h2:nth-child(3) {
 	float: right;
-//	width: 50%;
 	margin-right: 12mm;
+	display: none; /* Hide the third h2 with the die */
 }
-.stress .trait h2 c
-{
+.stress .trait h2 c {
 	display: none;
 }
-.stress div.trait:before
-{
+.stress hr {
 	position: absolute;
-	width: 40mm;
-	height: 20mm;
-	color: white;
-	margin-left: 38.5mm;
-	margin-top: -0.5mm;
-//	top: -2mm;
-//	background: yellow;
-	text-shadow: -0.1mm -0.1mm 0.3mm #000, 0.1mm -0.1mm 0.3mm #000, -0.1mm 0.1mm 0.3mm #000, 0.1mm 0.1mm 0.3mm #000;
-	
-	display: inline;
-	font-family: 'cortex-icons';
-	font-style: normal;
-	font-size: 14pt;
-	
-	content: "4 6 8 0 2";
-}
-.stress hr
-{
-	position: absolute;
-//	display: none;
 	margin-top: -1.8mm;
 	margin-left: 12mm;
 	width: 57mm;
@@ -1587,58 +1560,45 @@ ref
 	color: black;
 	border: 0.5pt solid black;
 }
-.stress h2
-{
+.stress h2 {
 	font-family: 'Alegreya Sans SC', sans-serif;
 	text-transform: unset;
 	font-size: 10pt;
-//	font-weight: 500;
 	color: black;
 }
-.stress .trait
-{
+.stress .trait {
 	margin-bottom: 6mm;
-//	text-align: center;
+	position: relative;
 }
-.stress .trait div
-{
+.stress .trait div {
     display: none;
 }
-.trait #remove-item:before
-{
+.trait #remove-item:before {
 	left: 71mm;
 }
 
+/* Stress dice container */
+.stress .trait .stress-dice {
+	position: absolute;
+	display: flex;
+	gap: 3mm;
+	margin-left: 36mm;
+	margin-top: -4.6mm;
+	align-items: center;
+}
 
-//.stress.trait-group .trait
-//{
-//	text-align: justify;
-//	width: calc(100% - 10pt);
-//	margin-top: 2mm;
-//	margin-bottom: 2mm;
-//}
-//.stress .trait > div
-//{
-//	display: inline;
-//	margin-top: 2mm;
-//	margin-bottom: 2mm;
-//}
-//.stress .trait div + div
-//{
-//	margin-top: 2mm;
-//}
-////.stress .trait > div:before
-////{
-////	display: inline;
-////	content: ':';
-////	margin: 0 1mm 0 -1mm;
-////}
-//.stress .trait #remove-item:before
-//{
-//	left: -9mm;
-//	top: -2mm;
-//}
-//.stress hr + div
-//{
-//	font-style: normal;
-//}
+.stress .trait .stress-dice c {
+	cursor: pointer;
+	transition: all 0.2s;
+	font-size: 14pt;
+	color: currentColor;
+	opacity: 0.3;
+}
+
+.stress .trait .stress-dice c:hover:not(.selected) {
+	opacity: 0.5;
+}
+
+.stress .trait .stress-dice c.selected {
+	opacity: 1;
+}
