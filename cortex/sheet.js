@@ -2681,9 +2681,57 @@ function toggleStressDie(traitElement, dieType) {
         clickedDie.classList.add('selected');
         clickedDie.style.color = 'var(--theme-primary, #C50852)';
         traitElement.dataset.selectedStressDie = dieType;
+        
+        // Send to Discord
+        sendStressToDiscord(traitElement, dieType);
     } else {
         delete traitElement.dataset.selectedStressDie;
+        
+        // Send cleared stress to Discord
+        sendStressToDiscord(traitElement, null);
     }
+}
+
+function sendStressToDiscord(traitElement, selectedDie) {
+    // Check if Discord is enabled
+    if (!discordEnabled || !discordWebhookUrl) {
+        return;
+    }
+    
+    const characterName = document.getElementById("character-name")?.innerText.trim() || "Unknown Character";
+    const stressName = traitElement.querySelector('h2:nth-child(2)')?.innerText.trim() || "Unknown Stress";
+    
+    let content;
+    
+    if (selectedDie) {
+        content = `💢 **${characterName}** took **${stressName}** stress: **${selectedDie.toUpperCase()}**`;
+    } else {
+        content = `✅ **${characterName}** cleared **${stressName}** stress`;
+    }
+    
+    const payload = {
+        content: content
+    };
+    
+    fetch(discordWebhookUrl, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload)
+    })
+    .then(response => {
+        if (response.ok) {
+            console.log("Stress update sent to Discord");
+        } else {
+            response.text().then(errorText => {
+                console.error("Failed to send stress update to Discord:", response.status, errorText);
+            });
+        }
+    })
+    .catch(error => {
+        console.error("Error sending stress update to Discord:", error);
+    });
 }
 
 // Prevent dice icons from being added to stress traits
