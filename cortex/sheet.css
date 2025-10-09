@@ -1164,11 +1164,6 @@ li:before {
 .signature-asset .trait div + div {
   margin-top: 2mm;
 }
-/* .signature-asset .trait > div:before {
-	display: inline;
-	content: ':';
-	margin: 0 1mm 0 -1mm;
-} */
 .signature-asset .trait #remove-item:before {
   left: -9mm;
   top: -2mm;

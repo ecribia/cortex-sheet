@@ -1,5 +1,3 @@
-// Copy this ENTIRE file and replace your existing JavaScript
-
 function text_to_html(html)
 {
 	if (html.search(/^-/m) != -1)
@@ -48,13 +46,11 @@ function add_event_handlers(editable)
 {
 	editable.addEventListener("blur",function (event)
 	{
-		// Remove dice icons before converting to text
 		const tempDiv = event.target.cloneNode(true);
 		tempDiv.querySelectorAll('.dice-icon').forEach(icon => icon.remove());
 		
 		event.target.innerHTML = text_to_html(tempDiv.innerText)
 		
-		// Re-add dice icon after blur if this is an attribute or header with dice
 		setTimeout(() => {
 			const parentAttribute = event.target.closest('.attribute');
 			if (parentAttribute) {
@@ -71,7 +67,6 @@ function add_event_handlers(editable)
 	
 	editable.addEventListener("focus",function (event)
 	{
-		// Remove dice icons before editing
 		const tempDiv = event.target.cloneNode(true);
 		tempDiv.querySelectorAll('.dice-icon').forEach(icon => icon.remove());
 		event.target.innerText = html_to_text(tempDiv.innerHTML)
@@ -118,6 +113,8 @@ function save_character(e)
 	var file = {}
 	var data = {}
 	file.version = 2;
+  file.theme = currentTheme;
+  file.darkMode = isDarkMode;
 	inputs = document.querySelectorAll('input, textarea, img, div[contenteditable], h2[contenteditable], c[contenteditable], span[contenteditable]')
 	for (var i=0; i<inputs.length; i++)
 	{
@@ -212,7 +209,6 @@ function save_character(e)
 		file.styles = styles;
 	}
 	
-	// *** NEW: Save stress dice selections ***
 	var stressData = {};
 	var stressTraits = document.querySelectorAll('.stress .trait:not(.template)');
 	for (var i=0; i<stressTraits.length; i++)
@@ -238,7 +234,6 @@ function save_character(e)
 	{
 		file.stressData = stressData;
 	}
-	// *** END NEW CODE ***
 	
 	var uri = encodeURI("data:application/json;charset=utf-8," + JSON.stringify(file));
 	uri = uri.replace(/#/g, '%23')
@@ -254,11 +249,9 @@ function save_character(e)
 
 function get_children(elem, i, version)
 {	
-	// Hack to remain backwards compatible
 	var index = 0;
 	for (var ip=0; ip<=i && index<elem.children.length; index++)
 	{
-		//if (elem.children[index].classList.contains('no-print')) continue;
 		if (version === undefined && (elem.children[index].id == "remove-item" || elem.children[index].id == "context-menu-button")) continue;
 		if (ip == i) break;
 		
@@ -303,7 +296,21 @@ function load_character(file)
 	{
 		data = file.data
 	}
-	
+  const loadedTheme = file.theme || 'classic';
+  const loadedDarkMode = file.darkMode !== undefined ? file.darkMode : false;
+  applyTheme(loadedTheme, loadedDarkMode);
+
+  // Clear existing stress selections before loading new character
+	const existingStressTraits = document.querySelectorAll('.stress .trait:not(.template)');
+	existingStressTraits.forEach(trait => {
+		delete trait.dataset.selectedStressDie;
+		const allDice = trait.querySelectorAll('.stress-dice c');
+		allDice.forEach(die => {
+			die.classList.remove('selected');
+			die.style.color = '';
+		});
+	});
+
 	for (var i in data)
 	{
 		var element = null
@@ -368,7 +375,6 @@ function load_character(file)
 		}		
 	}
 	
-	// *** NEW: Load stress dice selections ***
 	if (version >= 2 && file.stressData != null)
 	{
 		for (var i in file.stressData)
@@ -378,7 +384,6 @@ function load_character(file)
 			if (elem && selectedDie)
 			{
 				elem.dataset.selectedStressDie = selectedDie;
-				// Visually select the die after a short delay
 				setTimeout(function(element, die) {
 					return function() {
 						var dieElement = element.querySelector('.stress-dice c[data-die="' + die + '"]');
@@ -391,9 +396,6 @@ function load_character(file)
 			}
 		}
 	}
-	// *** END NEW CODE ***
-	
-	// Rescan headers after loading
 	setTimeout(() => scanExistingHeaders(), 200);
 }
 
@@ -433,7 +435,6 @@ function add_group(e, class_name)
 	new_group.classList.remove("template")
 	e.target.parentElement.insertBefore(new_group, e.target)
 	init_event_handlers(new_group)
-	// ADDED: Rescan after adding new group
 	setTimeout(() => scanExistingHeaders(), 50);
 }
 
@@ -450,13 +451,11 @@ function update_attribute_positions()
 {
 	var attributes = document.querySelectorAll(".attribute:not(.template)")
 
-	// Remove vertical class from all attributes and reset order
 	attributes.forEach(a => {
 		a.classList.remove("vertical");
 		a.classList.remove("top-attribute");
 		a.parentElement.classList.remove("vertical");
 		
-		// Reset order for all attributes (put c tag first, div second)
 		var cTag = a.querySelector('c');
 		var divTag = a.querySelector('div[contenteditable]');
 		if (cTag && divTag && divTag.previousElementSibling !== cTag) {
@@ -491,7 +490,6 @@ function update_attribute_positions()
 			var a = attributes[i]
 			
 			if (i < bottomCount) {
-				// Bottom arc - keep default order (c tag first, text below)
 				var alpha = bottomCount === 1 ? 0.5 : i / (bottomCount - 1);
 				
 				var x = (right - left) * alpha + left + 3.5;
@@ -500,7 +498,6 @@ function update_attribute_positions()
 				var y = Math.sin(alpha * 3.1415926535) * height + bottomTop - 3;
 				a.style.top = y + "mm";
 			} else {
-				// Top arc - reorder DOM elements (div first, text above)
 				var topIndex = i - bottomCount;
 				var alpha = topCount === 1 ? 0.5 : topIndex / (topCount - 1);
 				
@@ -512,7 +509,6 @@ function update_attribute_positions()
 				
 				a.classList.add("top-attribute");
 				
-				// Physically reorder the child elements for top attributes only
 				var cTag = a.querySelector('c');
 				var divTag = a.querySelector('div[contenteditable]');
 				if (cTag && divTag && cTag.previousElementSibling !== divTag) {
@@ -526,7 +522,6 @@ function add_attribute(e)
 {
 	add_group(e, "attribute")
 	update_attribute_positions();
-	// ADDED: Rescan after adding attribute (FIX #2)
 	setTimeout(() => scanExistingHeaders(), 50);
 }
 function remove_attribute(e)
@@ -550,7 +545,7 @@ function reset_trait_group(elem)
 function set_trait_group_name(e)
 {
 	// Disabled automatic styling based on names
-	// Users must manually set styles via the context menu (ellipsis icon)
+	// Users must manually set styles via the context menu
 	return;
 }
 
@@ -729,15 +724,12 @@ window.onload = function()
 	init_event_handlers(document)
 }
 
-// ============================================================================
-// DICE POOL SYSTEM - COMPLETE WITH ALL FIXES
-// ============================================================================
+// DICE POOL SYSTEM
 
 let dicePool = [];
 let dicePoolPanel = null;
 let rollHistory = [];
 
-// Convert <c> value to die notation
 function getDieFromCValue(cValue) {
     const val = parseInt(cValue);
     switch(val) {
@@ -750,15 +742,12 @@ function getDieFromCValue(cValue) {
     }
 }
 
-// Get die value from header at the moment of clicking
 function getDieFromHeader(header) {
-    // Check if this is part of an attribute (header is actually the nameDiv in attributes)
     const parentAttribute = header.closest('.attribute');
     if (parentAttribute) {
         return getDieFromAttribute(parentAttribute);
     }
     
-    // Otherwise it's a regular h2 header with <c> inside
     let cTag = header.querySelector('c');
     
     if (!cTag) {
@@ -772,7 +761,6 @@ function getDieFromHeader(header) {
     return dieValue;
 }
 
-// Store reference to header element
 function attachDiceIcon(header) {
     const existingIcon = header.querySelector(".dice-icon");
     if (existingIcon) {
@@ -786,7 +774,6 @@ function attachDiceIcon(header) {
 
     const icon = document.createElement("span");
     icon.classList.add("dice-icon");
-    // Use SVG instead of emoji for better aesthetics
     icon.innerHTML = `<svg width="14" height="14" viewBox="0 0 20 20" style="vertical-align: middle;">
         <rect x="2" y="2" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>
         <circle cx="10" cy="10" r="1.5" fill="currentColor"/>
@@ -813,7 +800,6 @@ function attachDiceIcon(header) {
             return;
         }
 
-        // Get the name from the previous sibling h2 if it exists (for distinctions/traits)
         let nameElement = header;
         const prevSibling = header.previousElementSibling;
         if (prevSibling && prevSibling.tagName === 'H2' && prevSibling.classList.contains('inline')) {
@@ -834,7 +820,6 @@ function attachDiceIcon(header) {
     header.appendChild(icon);
 }
 
-// Scan all headers and attach dice icons
 function scanExistingHeaders() {
     console.log("Scanning for headers with dice values...");
     
@@ -842,7 +827,6 @@ function scanExistingHeaders() {
     
     let headersFound = 0;
     
-    // Handle trait-groups and traits (h2 with <c> inside)
     const h2Selectors = [
         ".trait-group h2:not(.template h2)",
         ".trait h2:not(.template h2)"
@@ -860,7 +844,6 @@ function scanExistingHeaders() {
         });
     });
     
-    // Handle attributes (different structure: <c> and <div> are siblings)
     const attributes = document.querySelectorAll('.attribute:not(.template)');
     console.log(`Found ${attributes.length} attributes`);
     
@@ -877,7 +860,6 @@ function scanExistingHeaders() {
     console.log(`Total headers with dice icons: ${headersFound}`);
 }
 
-// Attach dice icon specifically for attributes
 function attachDiceIconToAttribute(attributeElement, nameDiv) {
     const existingIcon = nameDiv.querySelector(".dice-icon");
     if (existingIcon) {
@@ -886,7 +868,6 @@ function attachDiceIconToAttribute(attributeElement, nameDiv) {
 
     const icon = document.createElement("span");
     icon.classList.add("dice-icon");
-    // Use SVG instead of emoji
     icon.innerHTML = `<svg width="14" height="14" viewBox="0 0 20 20" style="vertical-align: middle;">
         <rect x="2" y="2" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>
         <circle cx="10" cy="10" r="1.5" fill="currentColor"/>
@@ -928,7 +909,6 @@ function attachDiceIconToAttribute(attributeElement, nameDiv) {
     nameDiv.appendChild(icon);
 }
 
-// Get die value from attribute element
 function getDieFromAttribute(attributeElement) {
     const cTag = attributeElement.querySelector('c');
     
@@ -943,7 +923,6 @@ function getDieFromAttribute(attributeElement) {
     return dieValue;
 }
 
-// Observe for dynamically added content
 let headerObserver = null;
 
 function observeNewHeaders() {
@@ -963,7 +942,6 @@ function observeNewHeaders() {
                         shouldRescan = true;
                     }
                     
-                    // FIX #2: Also watch for h2 tags (for attributes)
                     if (node.matches && node.matches('h2')) {
                         shouldRescan = true;
                     }
@@ -989,7 +967,6 @@ function observeNewHeaders() {
     });
 }
 
-// Create the dice pool panel
 function createDicePoolPanel() {
     dicePoolPanel = document.createElement("div");
     dicePoolPanel.id = "dice-pool-panel";
@@ -1009,7 +986,6 @@ function createDicePoolPanel() {
     document.body.appendChild(dicePoolPanel);
 }
 
-// Update the dice pool panel display
 function updateDicePoolPanel() {
     if (!dicePoolPanel) return;
     
@@ -1021,7 +997,6 @@ function updateDicePoolPanel() {
 
     const groupedDice = {};
     dicePool.forEach((die, index) => {
-        // Re-read die value based on whether it's an attribute or regular header
         let currentDieValue;
         if (die.isAttribute && die.attributeElement) {
             currentDieValue = getDieFromAttribute(die.attributeElement);
@@ -1149,7 +1124,6 @@ function rollDicePool() {
     }
 
     const results = dicePool.map(d => {
-        // Get the current die value based on type
         let currentValue;
         if (d.isAttribute && d.attributeElement) {
             currentValue = getDieFromAttribute(d.attributeElement);
@@ -1161,23 +1135,18 @@ function rollDicePool() {
         let size = parseInt(currentValue.replace("d", ""));
         const roll = Math.floor(Math.random() * size) + 1;
         
-        // Get clean header text without HTML
         let headerText;
         if (d.isAttribute && d.header) {
-            // For attributes, clone the element and remove the dice icon before getting text
             const tempDiv = d.header.cloneNode(true);
             const icon = tempDiv.querySelector('.dice-icon');
             if (icon) icon.remove();
             headerText = tempDiv.textContent.trim();
         } else if (d.nameElement && d.nameElement !== d.header) {
-            // Use the name element (previous sibling h2) if it exists
             headerText = d.nameElement.innerText.trim();
         } else {
-            // Fallback to the header itself
             const tempHeader = d.header.cloneNode(true);
             const icon = tempHeader.querySelector('.dice-icon');
             if (icon) icon.remove();
-            // Also remove the <c> tag to get just the name
             const cTag = tempHeader.querySelector('c');
             if (cTag) cTag.remove();
             headerText = tempHeader.textContent.trim();
@@ -1223,7 +1192,6 @@ function showRollResultsPanel(results) {
     const hitches = results.filter(r => r.roll === 1);
     const selectableDice = results.filter(r => r.roll !== 1);
     
-    // FIX #1: Auto-fill and auto-select when less than 3 dice
     let autoD4 = null;
     if (selectableDice.length < 3) {
         autoD4 = {
@@ -1270,12 +1238,11 @@ function showRollResultsPanel(results) {
             font-weight: bold;
         `;
         maxTotalBtn.addEventListener("click", () => {
-            // Sort by roll value descending, then by die size ascending (smaller dice first when tied)
             const sorted = [...selectableDice].sort((a, b) => {
                 if (b.roll !== a.roll) {
-                    return b.roll - a.roll; // Higher rolls first
+                    return b.roll - a.roll; 
                 }
-                return a.size - b.size; // If tied, smaller die first (better for effect)
+                return a.size - b.size;
             });
             selectedTotal = [sorted[0].id, sorted[1].id];
             selectedEffect = sorted[2] ? sorted[2].id : null;
@@ -1318,7 +1285,6 @@ function showRollResultsPanel(results) {
     function updateResultsDisplay() {
         resultsContainer.innerHTML = "";
         
-        // Get current theme colors
         const themeConfig = themes[currentTheme];
         const theme = isDarkMode ? themeConfig.darkMode : themeConfig;
         
@@ -1331,17 +1297,16 @@ function showRollResultsPanel(results) {
             let label = "";
             
             if (isTotal) {
-                bgColor = "#D4EDDA";  // Light green
-                borderColor = "#28A745";  // Darker green border
-                textColor = "#155724";  // Dark green text
+                bgColor = "#D4EDDA";
+                borderColor = "#28A745";
+                textColor = "#155724";
                 label = " 📊";
             } else if (isEffect) {
-                bgColor = "#FFF3CD";  // Light yellow/cream
-                borderColor = "#FFC107";  // Golden border
-                textColor = "#856404";  // Dark brown text
+                bgColor = "#FFF3CD";
+                borderColor = "#FFC107";
+                textColor = "#856404";
                 label = " ⭐";
             } else {
-                // Use theme colors for unselected state
                 bgColor = isDarkMode ? "rgba(255, 255, 255, 0.08)" : "#f5f5f5";
                 borderColor = isDarkMode ? "rgba(255, 255, 255, 0.2)" : "#ddd";
                 textColor = theme.text;
@@ -1362,7 +1327,6 @@ function showRollResultsPanel(results) {
                 transition: all 0.2s;
             `;
             
-            // Dice icon color: theme primary for unselected, inherit for selected
             const diceIconColor = (isTotal || isEffect) ? 'inherit' : theme.primary;
             const diceIcon = createDiceIcon(result.die);
             const rollDisplay = result.isAutoD4 ? '' : `: ${result.roll}`;
@@ -1552,7 +1516,6 @@ function showRollResultsPanel(results) {
         rollHistory.unshift(historyEntry);
         if (rollHistory.length > 20) rollHistory.pop();
         
-        // Post to Discord if enabled
         if (typeof window.postRollToDiscord === 'function') {
             window.postRollToDiscord(historyEntry);
         }
@@ -1748,7 +1711,6 @@ window.rescanDiceHeaders = function() {
     scanExistingHeaders();
 };
 
-// FIX #1: Move history button below theme and discord buttons
 window.addEventListener("load", function() {
     setTimeout(() => {
         const historyBtn = document.createElement("button");
@@ -1779,17 +1741,12 @@ window.addEventListener("load", function() {
 
 window.showRollHistory = showRollHistory;
 
-// ============================================================================
 // DISCORD WEBHOOK INTEGRATION
-// Add this to the END of your sheet.js file
-// ============================================================================
 
 let discordWebhookUrl = null;
 let discordEnabled = false;
 
-// Create Discord settings panel
 function createDiscordSettingsPanel() {
-    // Add button to toggle Discord settings
     const discordBtn = document.createElement("button");
     discordBtn.id = "discord-settings-btn";
     discordBtn.innerHTML = "💬";
@@ -1910,7 +1867,6 @@ function showDiscordSettings() {
 
     document.body.appendChild(panel);
 
-    // Event listeners
     document.getElementById("discord-test-btn").addEventListener("click", testDiscordConnection);
     document.getElementById("discord-save-btn").addEventListener("click", saveDiscordSettings);
     document.getElementById("discord-close-btn").addEventListener("click", () => panel.remove());
@@ -1923,7 +1879,6 @@ function saveDiscordSettings() {
     discordWebhookUrl = webhookInput.value.trim();
     discordEnabled = enabledCheckbox.checked;
     
-    // Save to localStorage
     localStorage.setItem('discord_webhook_url', discordWebhookUrl);
     localStorage.setItem('discord_enabled', discordEnabled ? 'true' : 'false');
     
@@ -1948,7 +1903,6 @@ function testDiscordConnection() {
     });
 }
 
-// Send roll results to Discord
 function sendToDiscord(webhookUrl, data) {
     if (!webhookUrl) {
         console.error("No webhook URL provided");
@@ -1961,7 +1915,6 @@ function sendToDiscord(webhookUrl, data) {
     if (data.isTest) {
         content = `🎲 **${data.characterName}** - ${data.message}`;
     } else {
-        // Format the roll result
         const characterName = data.characterName || "Unknown Character";
         
         let description = `**All Dice Rolled:**\n${data.allDiceDetailed}\n`;
@@ -1981,7 +1934,7 @@ function sendToDiscord(webhookUrl, data) {
         embeds.push({
             title: `🎲 ${characterName} rolled dice!`,
             description: description,
-            color: 12853058, // Pink/red color
+            color: 12853058,
             timestamp: new Date().toISOString()
         });
     }
@@ -2019,7 +1972,6 @@ function sendToDiscord(webhookUrl, data) {
     });
 }
 
-// Load Discord settings from localStorage
 function loadDiscordSettings() {
     const savedUrl = localStorage.getItem('discord_webhook_url');
     const savedEnabled = localStorage.getItem('discord_enabled');
@@ -2033,7 +1985,6 @@ function loadDiscordSettings() {
     }
 }
 
-// Initialize Discord integration
 window.addEventListener("load", function() {
     setTimeout(() => {
         loadDiscordSettings();
@@ -2042,7 +1993,6 @@ window.addEventListener("load", function() {
     }, 2000);
 });
 
-// Export function to be called when dice are rolled
 window.postRollToDiscord = function(rollData) {
     if (!discordEnabled || !discordWebhookUrl) {
         console.log("Discord posting disabled or no webhook URL");
@@ -2051,25 +2001,21 @@ window.postRollToDiscord = function(rollData) {
     
     const characterName = document.getElementById("character-name")?.innerText.trim() || "Unknown Character";
     
-    // Format all dice with their source names
     const allDiceDetailed = rollData.allResults.map(r => {
         const sourceName = r.header || "Unknown";
         return `• **${sourceName}** ${r.die} → ${r.roll}`;
     }).join("\n");
     
-    // Format total breakdown with source names
     const totalBreakdownDetailed = rollData.totalDice.map(d => {
         const sourceName = d.header || "Unknown";
         return `• **${sourceName}** ${d.die} → ${d.roll}`;
     }).join("\n");
     
-    // Format effect with just the die size
     let effectDetailed = null;
     if (rollData.effectDie) {
         effectDetailed = rollData.effectDie.die;
     }
     
-    // Format hitches with source names
     let hitchesDetailed = null;
     if (rollData.hitches.length > 0) {
         hitchesDetailed = rollData.hitches.map(h => {
@@ -2090,10 +2036,7 @@ window.postRollToDiscord = function(rollData) {
     sendToDiscord(discordWebhookUrl, discordData);
 };
 
-// ============================================================================
 // THEME SWITCHER SYSTEM
-// Add this to the END of your sheet.js file
-// ============================================================================
 
 const themes = {
     classic: {
@@ -2166,22 +2109,18 @@ const themes = {
 let currentTheme = 'classic';
 let isDarkMode = false;
 
-// Apply theme to the page
 function applyTheme(themeName, darkModeEnabled = null) {
     const themeConfig = themes[themeName];
     if (!themeConfig) return;
     
     currentTheme = themeName;
     
-    // If darkModeEnabled is explicitly passed, use it; otherwise use current state
     if (darkModeEnabled !== null) {
         isDarkMode = darkModeEnabled;
     }
     
-    // Select light or dark mode colors
     const theme = isDarkMode ? themeConfig.darkMode : themeConfig;
     
-    // Create or update style tag
     let styleTag = document.getElementById('dynamic-theme-styles');
     if (!styleTag) {
         styleTag = document.createElement('style');
@@ -2466,12 +2405,9 @@ function applyTheme(themeName, darkModeEnabled = null) {
         }
     `;
     
-    // Save to localStorage
-    localStorage.setItem('selected_theme', themeName);
-    localStorage.setItem('dark_mode_enabled', isDarkMode ? 'true' : 'false');
+    // Theme is now saved in the character file, not localStorage
 }
 
-// Create theme selector button
 function createThemeSelectorButton() {
     const themeBtn = document.createElement("button");
     themeBtn.id = "theme-selector-btn";
@@ -2497,7 +2433,6 @@ function createThemeSelectorButton() {
     console.log("Theme selector button created");
 }
 
-// Show theme selector panel
 function showThemeSelector() {
     const existingPanel = document.getElementById("theme-selector-panel");
     if (existingPanel) {
@@ -2583,15 +2518,13 @@ function showThemeSelector() {
     panel.innerHTML = themesHTML;
     document.body.appendChild(panel);
 
-    // Dark mode toggle handler
     const darkModeToggle = document.getElementById('dark-mode-toggle');
     darkModeToggle.addEventListener('change', (e) => {
         applyTheme(currentTheme, e.target.checked);
         panel.remove();
-        showThemeSelector(); // Refresh the panel with new colors
+        showThemeSelector();
     });
 
-    // Add click handlers for theme options
     panel.querySelectorAll('.theme-option').forEach(option => {
         option.addEventListener('click', () => {
             const themeName = option.getAttribute('data-theme');
@@ -2599,7 +2532,6 @@ function showThemeSelector() {
             panel.remove();
         });
 
-        // Hover effect
         option.addEventListener('mouseenter', function() {
             if (this.getAttribute('data-theme') !== currentTheme) {
                 this.style.transform = 'scale(1.02)';
@@ -2615,28 +2547,20 @@ function showThemeSelector() {
     document.getElementById("theme-close-btn").addEventListener("click", () => panel.remove());
 }
 
-// Initialize theme system
 window.addEventListener("load", function() {
     setTimeout(() => {
-        // Load saved theme and dark mode preference
-        const savedTheme = localStorage.getItem('selected_theme') || 'classic';
-        const savedDarkMode = localStorage.getItem('dark_mode_enabled') === 'true';
-        
-        applyTheme(savedTheme, savedDarkMode);
+        // Always start with default theme (classic, light mode)
+        applyTheme('classic', false);
         
         createThemeSelectorButton();
         console.log("Theme system initialized!");
     }, 2500);
 });
 
-// ============================================================================
 // EDIT MODE TOGGLE SYSTEM
-// Add this to the END of your sheet.js file
-// ============================================================================
 
-let editModeEnabled = true; // Start with editing enabled
+let editModeEnabled = true; 
 
-// Create edit mode toggle button
 function createEditModeToggle() {
     const editBtn = document.createElement("button");
     editBtn.id = "edit-mode-btn";
@@ -2661,25 +2585,20 @@ function createEditModeToggle() {
     editBtn.addEventListener("click", toggleEditMode);
     document.body.appendChild(editBtn);
     
-    // Apply initial state
     applyEditMode();
 }
 
-// Toggle edit mode on/off
 function toggleEditMode() {
     editModeEnabled = !editModeEnabled;
     applyEditMode();
     
-    // Save preference
     localStorage.setItem('edit_mode_enabled', editModeEnabled ? 'true' : 'false');
 }
 
-// Apply edit mode state to the page
 
 function applyEditMode() {
     const editBtn = document.getElementById("edit-mode-btn");
     
-    // Create or update style tag for edit mode
     let styleTag = document.getElementById('edit-mode-styles');
     if (!styleTag) {
         styleTag = document.createElement('style');
@@ -2687,16 +2606,13 @@ function applyEditMode() {
         document.head.appendChild(styleTag);
     }
     
-    // Get all contenteditable elements
     const editableElements = document.querySelectorAll('[contenteditable]');
     
     if (editModeEnabled) {
-        // Edit mode ON - show all controls and enable editing
         editBtn.innerHTML = "🔓";
         editBtn.title = "Lock Editing (Currently Unlocked)";
         editBtn.style.background = "#28a745";
         
-        // Re-enable contenteditable
         editableElements.forEach(el => {
             if (el.dataset.wasEditable !== 'false') {
                 el.setAttribute('contenteditable', 'true');
@@ -2712,12 +2628,10 @@ function applyEditMode() {
             }
         `;
     } else {
-        // Edit mode OFF - hide all controls and disable editing
         editBtn.innerHTML = "🔒";
         editBtn.title = "Unlock Editing (Currently Locked)";
         editBtn.style.background = "#dc3545";
         
-        // Disable contenteditable completely
         editableElements.forEach(el => {
             el.setAttribute('contenteditable', 'false');
         });
@@ -2746,10 +2660,8 @@ function applyEditMode() {
     }
 }
 
-// Initialize edit mode toggle
 window.addEventListener("load", function() {
     setTimeout(() => {
-        // Load saved preference
         const savedMode = localStorage.getItem('edit_mode_enabled');
         if (savedMode !== null) {
             editModeEnabled = savedMode === 'true';
@@ -2760,22 +2672,18 @@ window.addEventListener("load", function() {
     }, 2500);
 });
 
-// Also disable contenteditable when locked
 document.addEventListener('focus', function(e) {
     if (!editModeEnabled && e.target.hasAttribute('contenteditable')) {
-        // Allow reading but prevent editing
         e.target.blur();
     }
 }, true);
 
-// Prevent accidental edits in locked mode
 document.addEventListener('keydown', function(e) {
     if (!editModeEnabled) {
         const target = e.target;
         if (target.hasAttribute('contenteditable') || 
             target.tagName === 'INPUT' || 
             target.tagName === 'TEXTAREA') {
-            // Allow Ctrl+C for copying, but block other edits
             if (!(e.ctrlKey && e.key === 'c') && 
                 !(e.ctrlKey && e.key === 'a') &&
                 e.key !== 'Tab') {
@@ -2785,10 +2693,7 @@ document.addEventListener('keydown', function(e) {
     }
 }, true);
 
-// ============================================================================
-// STRESS SYSTEM - CLEAN SOLUTION
-// Add this to your sheet.js - Replace all previous stress code with this
-// ============================================================================
+// STRESS SYSTEM
 
 function initializeStressSystem() {
     console.log("Initializing stress system...");
@@ -2809,7 +2714,7 @@ function addStressDice(traitElement) {
     const diceContainer = document.createElement('div');
     diceContainer.className = 'stress-dice';
     
-    const diceValues = ['4', '6', '8', '0', '2']; // d4, d6, d8, d10, d12
+    const diceValues = ['4', '6', '8', '0', '2'];
     const diceTypes = ['d4', 'd6', 'd8', 'd10', 'd12'];
     
     diceValues.forEach((value, index) => {
@@ -2828,7 +2733,6 @@ function addStressDice(traitElement) {
     
     traitElement.appendChild(diceContainer);
     
-    // Load saved state
     const savedDie = traitElement.dataset.selectedStressDie;
     if (savedDie) {
         const dieElement = diceContainer.querySelector(`c[data-die="${savedDie}"]`);
@@ -2843,33 +2747,27 @@ function toggleStressDie(traitElement, dieType) {
     const allDice = traitElement.querySelectorAll('.stress-dice c');
     const clickedDie = traitElement.querySelector(`.stress-dice c[data-die="${dieType}"]`);
     
-    // Check if already selected
     const isSelected = clickedDie.classList.contains('selected');
     
-    // Deselect all
     allDice.forEach(die => {
         die.classList.remove('selected');
         die.style.color = '';
     });
     
-    // If wasn't selected, select it
     if (!isSelected) {
         clickedDie.classList.add('selected');
         clickedDie.style.color = 'var(--theme-primary, #C50852)';
         traitElement.dataset.selectedStressDie = dieType;
         
-        // Send to Discord
         sendStressToDiscord(traitElement, dieType);
     } else {
         delete traitElement.dataset.selectedStressDie;
         
-        // Send cleared stress to Discord
         sendStressToDiscord(traitElement, null);
     }
 }
 
 function sendStressToDiscord(traitElement, selectedDie) {
-    // Check if Discord is enabled
     if (!discordEnabled || !discordWebhookUrl) {
         return;
     }
@@ -2910,7 +2808,6 @@ function sendStressToDiscord(traitElement, selectedDie) {
     });
 }
 
-// Prevent dice icons from being added to stress traits
 const originalScanHeaders = window.scanExistingHeaders;
 window.scanExistingHeaders = function() {
     console.log("Scanning for headers with dice values...");
@@ -2918,7 +2815,6 @@ window.scanExistingHeaders = function() {
     
     let headersFound = 0;
     
-    // Skip stress traits when adding dice icons
     const h2Selectors = [
         ".trait-group:not(.stress) h2:not(.template h2)",
         ".trait:not(.stress .trait) h2:not(.template h2)"
@@ -2934,7 +2830,6 @@ window.scanExistingHeaders = function() {
         });
     });
     
-    // Handle attributes
     const attributes = document.querySelectorAll('.attribute:not(.template)');
     attributes.forEach(attr => {
         const cTag = attr.querySelector('c');
@@ -2948,12 +2843,10 @@ window.scanExistingHeaders = function() {
     console.log(`Total headers with dice icons: ${headersFound}`);
 };
 
-// Initialize
 window.addEventListener("load", function() {
     setTimeout(() => {
         initializeStressSystem();
         
-        // Watch for new stress traits
         const observer = new MutationObserver((mutations) => {
             let shouldRescan = false;
             mutations.forEach(mutation => {
@@ -2974,7 +2867,7 @@ window.addEventListener("load", function() {
         console.log("Stress system initialized!");
     }, 3500);
 });
-// Make attribute dice clickable when locked
+
 function makeAttributeDiceClickable() {
     const attributes = document.querySelectorAll('.attribute:not(.template)');
     
@@ -2982,13 +2875,11 @@ function makeAttributeDiceClickable() {
         const cTag = attr.querySelector('c');
         if (!cTag) return;
         
-        // Remove any existing click handler
         const newCTag = cTag.cloneNode(true);
         cTag.parentNode.replaceChild(newCTag, cTag);
         
-        // Add click handler when locked
         newCTag.addEventListener('click', (e) => {
-            if (!editModeEnabled) { // Only work when locked
+            if (!editModeEnabled) {
                 e.stopPropagation();
                 e.preventDefault();
                 
@@ -3011,7 +2902,6 @@ function makeAttributeDiceClickable() {
             }
         });
         
-        // Add hover effect when locked
         newCTag.style.cursor = 'default';
         newCTag.addEventListener('mouseenter', () => {
             if (!editModeEnabled) {
@@ -3021,14 +2911,12 @@ function makeAttributeDiceClickable() {
     });
 }
 
-// Call this function whenever attributes are updated
 const originalUpdateAttributePositions = update_attribute_positions;
 update_attribute_positions = function() {
     originalUpdateAttributePositions();
     setTimeout(() => makeAttributeDiceClickable(), 100);
 };
 
-// Initialize on load
 window.addEventListener("load", function() {
     setTimeout(() => {
         makeAttributeDiceClickable();
