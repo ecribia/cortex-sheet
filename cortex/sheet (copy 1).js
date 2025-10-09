@@ -212,34 +212,6 @@ function save_character(e)
 		file.styles = styles;
 	}
 	
-	// *** NEW: Save stress dice selections ***
-	var stressData = {};
-	var stressTraits = document.querySelectorAll('.stress .trait:not(.template)');
-	for (var i=0; i<stressTraits.length; i++)
-	{
-		var trait = stressTraits[i];
-		var selectedDie = trait.dataset.selectedStressDie;
-		if (selectedDie)
-		{
-			var elem = trait;
-			var id = elem.id;
-			var path = ''
-			while (id === '' && elem.parentElement != null)
-			{
-				id = elem.parentElement.id
-				path = Array.prototype.indexOf.call(elem.parentElement.children, elem) + "/" + path
-				elem = elem.parentElement
-			}
-			id = id + "/" + path.slice(0, -1)
-			stressData[id] = selectedDie;
-		}
-	}
-	if (Object.keys(stressData).length)
-	{
-		file.stressData = stressData;
-	}
-	// *** END NEW CODE ***
-	
 	var uri = encodeURI("data:application/json;charset=utf-8," + JSON.stringify(file));
 	uri = uri.replace(/#/g, '%23')
 	var link = document.createElement("a");
@@ -368,32 +340,7 @@ function load_character(file)
 		}		
 	}
 	
-	// *** NEW: Load stress dice selections ***
-	if (version >= 2 && file.stressData != null)
-	{
-		for (var i in file.stressData)
-		{
-			var elem = get_element_from_path(i, version);
-			var selectedDie = file.stressData[i];
-			if (elem && selectedDie)
-			{
-				elem.dataset.selectedStressDie = selectedDie;
-				// Visually select the die after a short delay
-				setTimeout(function(element, die) {
-					return function() {
-						var dieElement = element.querySelector('.stress-dice c[data-die="' + die + '"]');
-						if (dieElement) {
-							dieElement.classList.add('selected');
-							dieElement.style.color = 'var(--theme-primary, #C50852)';
-						}
-					};
-				}(elem, selectedDie), 100);
-			}
-		}
-	}
-	// *** END NEW CODE ***
-	
-	// Rescan headers after loading
+	// ADDED: Rescan headers after loading
 	setTimeout(() => scanExistingHeaders(), 200);
 }
 
@@ -549,9 +496,50 @@ function reset_trait_group(elem)
 
 function set_trait_group_name(e)
 {
-	// Disabled automatic styling based on names
-	// Users must manually set styles via the context menu (ellipsis icon)
-	return;
+	if (e.target.parentElement.getAttribute("data-style") != null) return;
+
+    reset_trait_group(e.target.parentElement);
+
+	if (e.target.innerText.toLowerCase() == "roles")
+	{
+		e.target.parentElement.classList.add("values");
+	}
+	else if (e.target.innerText.toLowerCase() == "signature asset" || e.target.innerText.toLowerCase() == "signature assets")
+	{
+		e.target.parentElement.classList.add("signature-asset");
+	}
+	else if (e.target.innerText.toLowerCase() == "milestones")
+	{
+		e.target.parentElement.classList.add("milestones");
+	}
+	else if (e.target.innerText.toLowerCase() == "values")
+	{
+		e.target.parentElement.classList.add("values");
+	}
+	else if (e.target.innerText.toLowerCase() == "emotions")
+	{
+		e.target.parentElement.classList.add("values");
+	}
+	else if (e.target.innerText.toLowerCase() == "skills")
+	{
+		e.target.parentElement.classList.add("values");
+	}
+	else if (e.target.innerText.toLowerCase() == "specialties")
+	{
+		e.target.parentElement.classList.add("values");
+	}
+	else if (e.target.innerText.toLowerCase() == "resource")
+	{
+		e.target.parentElement.classList.add("resources");
+	}
+	else if (e.target.innerText.toLowerCase() == "resources")
+	{
+		e.target.parentElement.classList.add("resources");
+	}
+	else if (e.target.innerText.toLowerCase() == "stress")
+	{
+		e.target.parentElement.classList.add("stress");
+	}
 }
 
 g_dragging = false;
@@ -1318,33 +1306,26 @@ function showRollResultsPanel(results) {
     function updateResultsDisplay() {
         resultsContainer.innerHTML = "";
         
-        // Get current theme colors
-        const themeConfig = themes[currentTheme];
-        const theme = isDarkMode ? themeConfig.darkMode : themeConfig;
-        
         selectableDice.forEach(result => {
             const resultDiv = document.createElement("div");
             const isTotal = selectedTotal.includes(result.id);
             const isEffect = selectedEffect === result.id;
             
-            let bgColor, borderColor, textColor;
+            let bgColor = "#f5f5f5";
+            let borderColor = "#ccc";
+            let textColor = "#000";
             let label = "";
             
             if (isTotal) {
-                bgColor = "#D4EDDA";  // Light green
-                borderColor = "#28A745";  // Darker green border
-                textColor = "#155724";  // Dark green text
+                bgColor = "#90C490";
+                borderColor = "#90C490";
+                textColor = "#000";
                 label = " 📊";
             } else if (isEffect) {
-                bgColor = "#FFF3CD";  // Light yellow/cream
-                borderColor = "#FFC107";  // Golden border
-                textColor = "#856404";  // Dark brown text
+                bgColor = "#FFA500";
+                borderColor = "#FFA500";
+                textColor = "#fff";
                 label = " ⭐";
-            } else {
-                // Use theme colors for unselected state
-                bgColor = isDarkMode ? "rgba(255, 255, 255, 0.08)" : "#f5f5f5";
-                borderColor = isDarkMode ? "rgba(255, 255, 255, 0.2)" : "#ddd";
-                textColor = theme.text;
             }
             
             resultDiv.style.cssText = `
@@ -1362,12 +1343,10 @@ function showRollResultsPanel(results) {
                 transition: all 0.2s;
             `;
             
-            // Dice icon color: theme primary for unselected, inherit for selected
-            const diceIconColor = (isTotal || isEffect) ? 'inherit' : theme.primary;
             const diceIcon = createDiceIcon(result.die);
             const rollDisplay = result.isAutoD4 ? '' : `: ${result.roll}`;
             resultDiv.innerHTML = `
-                <span><strong><span style="color: ${diceIconColor};">${diceIcon}</span></strong>${rollDisplay}</span>
+                <span><strong>${diceIcon}</strong>${rollDisplay}</span>
                 <span style="font-size: 14px;">${label}</span>
             `;
             
@@ -2385,85 +2364,6 @@ function applyTheme(themeName, darkModeEnabled = null) {
             color: ${theme.primary} !important;
             border: 1px solid ${theme.primary} !important;
         }
-
-        /* Dice Pool Panel - Theme Support */
-        #dice-pool-panel {
-            background: ${theme.background} !important;
-            color: ${theme.text} !important;
-            border-color: ${theme.primary} !important;
-        }
-        
-        #dice-pool-panel > div:first-child {
-            color: ${theme.text} !important;
-        }
-        
-        /* Dice in pool - the spans with dice */
-        #dice-pool-panel span {
-            background: ${theme.background} !important;
-            color: ${theme.text} !important;
-            border-color: ${theme.primary} !important;
-        }
-        
-        /* Dice icons inside pool */
-        #dice-pool-panel span c {
-            color: ${theme.primary} !important;
-        }
-        
-        /* Roll Results Panel - Theme Support */
-        #roll-results-panel {
-            background: ${theme.background} !important;
-            color: ${theme.text} !important;
-            border-color: ${theme.primary} !important;
-        }
-        
-        #roll-results-panel > div {
-            color: ${theme.text} !important;
-        }
-        
-        /* Instructions text */
-        #roll-results-panel > div:nth-child(2) {
-            color: ${theme.secondaryText} !important;
-        }
-        
-        /* Result dice container */
-        #roll-results-panel > div:nth-child(3) > div {
-            background: ${isDarkMode ? 'rgba(255, 255, 255, 0.08)' : '#f5f5f5'} !important;
-            border-color: ${theme.primary} !important;
-            color: ${theme.text} !important;
-        }
-        
-        /* Dice icons in results */
-        #roll-results-panel c {
-            color: ${theme.primary} !important;
-        }
-        
-        /* Summary box */
-        #roll-summary {
-            background: ${isDarkMode ? 'rgba(255, 255, 255, 0.05)' : '#f9f9f9'} !important;
-            border-color: ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : '#ddd'} !important;
-            color: ${theme.text} !important;
-        }
-        
-        /* Roll History Panel - Theme Support */
-        #roll-history-panel {
-            background: ${theme.background} !important;
-            color: ${theme.text} !important;
-            border-color: ${theme.primary} !important;
-        }
-        
-        #roll-history-panel > div {
-            color: ${theme.text} !important;
-        }
-        
-        #roll-history-panel > div > div {
-            background: ${isDarkMode ? 'rgba(255, 255, 255, 0.05)' : '#f9f9f9'} !important;
-            border-color: ${isDarkMode ? 'rgba(255, 255, 255, 0.1)' : '#ddd'} !important;
-            color: ${theme.text} !important;
-        }
-        
-        #roll-history-panel c {
-            color: ${theme.primary} !important;
-        }
     `;
     
     // Save to localStorage
@@ -2675,7 +2575,6 @@ function toggleEditMode() {
 }
 
 // Apply edit mode state to the page
-
 function applyEditMode() {
     const editBtn = document.getElementById("edit-mode-btn");
     
@@ -2687,21 +2586,11 @@ function applyEditMode() {
         document.head.appendChild(styleTag);
     }
     
-    // Get all contenteditable elements
-    const editableElements = document.querySelectorAll('[contenteditable]');
-    
     if (editModeEnabled) {
-        // Edit mode ON - show all controls and enable editing
+        // Edit mode ON - show all controls
         editBtn.innerHTML = "🔓";
         editBtn.title = "Lock Editing (Currently Unlocked)";
         editBtn.style.background = "#28a745";
-        
-        // Re-enable contenteditable
-        editableElements.forEach(el => {
-            if (el.dataset.wasEditable !== 'false') {
-                el.setAttribute('contenteditable', 'true');
-            }
-        });
         
         styleTag.textContent = `
             /* Show all edit controls */
@@ -2712,15 +2601,10 @@ function applyEditMode() {
             }
         `;
     } else {
-        // Edit mode OFF - hide all controls and disable editing
+        // Edit mode OFF - hide all controls
         editBtn.innerHTML = "🔒";
         editBtn.title = "Unlock Editing (Currently Locked)";
         editBtn.style.background = "#dc3545";
-        
-        // Disable contenteditable completely
-        editableElements.forEach(el => {
-            el.setAttribute('contenteditable', 'false');
-        });
         
         styleTag.textContent = `
             /* Hide all edit controls */
@@ -2733,14 +2617,6 @@ function applyEditMode() {
             /* Also hide the no-print class items when locked */
             .no-print:not(#edit-mode-btn):not(#discord-settings-btn):not(#theme-selector-btn):not(#roll-history-btn):not(#dice-pool-panel):not(#roll-results-panel):not(#roll-history-panel):not(#discord-settings-panel):not(#theme-selector-panel):not(#character-manager-panel) {
                 display: none !important;
-            }
-            
-            /* Prevent text selection and cursor changes when locked */
-            [contenteditable="false"] {
-                user-select: none !important;
-                -webkit-user-select: none !important;
-                -moz-user-select: none !important;
-                cursor: default !important;
             }
         `;
     }
